@@ -1,0 +1,40 @@
+﻿<!DOCTYPE html>
+<html>
+<body style="background-color:powderblue;">
+<div style="background-color:white; height: 600px; width: 600px;">
+    <div id="trustly-deposite-content">
+        <div style="padding: 40px">
+            <span>Amount: <input id="trustly-deposite-amount" /></span>
+            </br>
+            <span>Email: <input id="trustly-deposite-email" /></span>
+            </br>
+            <button id="trustly-deposite-continue">Continue</button>
+        </div>
+    </div>
+    <script>
+        var btn = document.getElementById("trustly-deposite-continue");
+        btn.onclick = function openPaymentLink() {
+            var amount = document.getElementById("trustly-deposite-amount").value;
+            var email = document.getElementById("trustly-deposite-email").value;
+            fetch("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/deposit", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        Email: email,
+                        Amount: amount,
+                        Currency: "EUR",
+                        Country: "PLN",
+                        Locale: "en_US",
+                        SuccessURL: "https://yourpage.com/success",
+                        FailURL: "https://yourpage.com/fail"
+                    }),
+                    headers: {
+                        "Content-type": "application/json; charset=UTF-8"
+                    }
+                })
+                .then((response) => response.json())
+                .then((json) => document.getElementById('trustly-deposite-content').innerHTML = "<iframe style='height: 600px; width: 600px;' src='" + json.url + "'></iframe>");
+        }
+    </script>
+</div>
+</body>
+</html>
