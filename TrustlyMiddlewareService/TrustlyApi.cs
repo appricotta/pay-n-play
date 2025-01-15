@@ -50,7 +50,8 @@ public class TrustlyApi
     {
         var uuid = Guid.NewGuid().ToString();
         var notificationUrl = "https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications";
-        var messageId = Guid.NewGuid().ToString();
+        var encodedEmail = Convert.ToBase64String(Encoding.ASCII.GetBytes(email));
+        var messageId = string.Concat(Guid.NewGuid().ToString(), encodedEmail);
         var json = @$"{{
   ""method"": ""Deposit"",
   ""params"": {{

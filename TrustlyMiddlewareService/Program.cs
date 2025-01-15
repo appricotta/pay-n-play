@@ -1,11 +1,10 @@
-﻿using System.Security.Cryptography;
-using System.Text;
-using System.Web;
+﻿using System.Text;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.WebUtilities;
 using Newtonsoft.Json;
 using Serilog;
 using TrustlyMiddlewareService;
+
+//await HittikasinoApi.TryCreateUser("Mateo", "Lundin", "qwe2@qq.q");
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
@@ -55,14 +54,31 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
         if (method == "kyc")
         {
             var uuid = (string)notification["params"].uuid;
-            await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
+            var data = notification["params"].data;
+            var attributes = data.attributes;
+            var firstname = (string)attributes.firstname;
+            var lastname = (string)attributes.lastname;
+            var messageid = (string)data.messageid;
+            var encodedEmail = messageid.Substring(36);
+            var email = Encoding.ASCII.GetString(Convert.FromBase64String(encodedEmail));
+            if (await HittikasinoApi.TryCreateUser(firstname, lastname, email))
+            {
+                logger.LogDebug(string.Concat("Respond to a KYC notification: CONTINUE"));
+                await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
+            }
+            else
+            {
+                logger.LogDebug(string.Concat("Respond to a KYC notification: FINISH"));
+                await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
+            }
         }
         else
         {
             var client = new HttpClient();
             var stringPayload = JsonConvert.SerializeObject(notification);
             var httpContent = new StringContent(stringPayload, Encoding.UTF8, "application/json");
-            var redirectResp = await client.PostAsync("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications2", httpContent);
+            //var redirectResp = await client.PostAsync("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications2", httpContent);
+            var redirectResp = await client.PostAsync("https://a.papaya.ninja/trustly/gate/mobinc/", httpContent);
             var content = await redirectResp.Content.ReadAsStringAsync();
             logger.LogDebug(string.Concat("Redirected response content: ", content));
             await context.Response.WriteAsync(content);
@@ -92,65 +108,6 @@ app.MapPost("/trustly/notifications2", async ([FromBody] object body, HttpContex
 
 app.Run();
 
-async Task CreateUser()
-{
-    var paramsDic = new Dictionary<string, string>
-    {
-        { "ident", "ma" },
-        { "email", "test1@email.com" },
-        { "first_name", "testfirstname1" },
-        { "last_name", "testlastname1" },
-    };
-    var plain = string.Concat(string.Concat(paramsDic.OrderBy(x => x.Key).Select(x => string.Concat(x.Key, x.Value))), "8cf2bf68bd066d37bcfaaae26251c365");
 
-    
-    byte[] hashmessage = new HMACSHA1().ComputeHash(Encoding.UTF8.GetBytes(plain));
-    var t1 = String.Concat(Array.ConvertAll(hashmessage, x => x.ToString("x2")));
-
-    using (SHA1Managed sha1 = new SHA1Managed())
-    {
-        var hash2 = sha1.ComputeHash(Encoding.UTF8.GetBytes(plain));
-        var sb = new StringBuilder(hash2.Length * 2);
-
-        foreach (byte b in hash2)
-        {
-            sb.Append(b.ToString("x2")); // x2 is lowercase
-        }
-
-        var t2 = sb.ToString().ToLower();
-    }
-
-    var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain)));
-
-
-
-
-
-
-
-    paramsDic.Add("sign",hash);
-
-
-    var p = UrlEncode(paramsDic);
-
-    string url = QueryHelpers.AddQueryString("https://beta.hittikasino.com/registration/api/", paramsDic);
-    
-    //var client = new HttpClient();
-    //var result = await client.PostAsync(url, paramsDic);
-    //string resultContent = await result.Content.ReadAsStringAsync();
-    
-}
-
-static string UrlEncode(IDictionary<string, string> parameters)
-{
-    var sb = new StringBuilder();
-    foreach (var val in parameters)
-    {
-        // add each parameter to the query string, url-encoding the value.
-        sb.AppendFormat("{0}={1}&", val.Key, HttpUtility.UrlEncode(val.Value));
-    }
-    sb.Remove(sb.Length - 1, 1); // remove last '&'
-    return sb.ToString();
-}
 
 public record DepositParams(string Email, double Amount, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);
