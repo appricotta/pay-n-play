@@ -33,4 +33,10 @@
     <PackageReference Include="trustly-api-client" Version="0.0.9" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="test\testpage.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

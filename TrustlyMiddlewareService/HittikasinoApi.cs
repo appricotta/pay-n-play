@@ -8,9 +8,9 @@ namespace TrustlyMiddlewareService;
 
 public class HittikasinoApi
 {
-    public static async Task<bool> TryCreateUser(string firstName, string lastName, string email)
+    public static async Task<bool> TryCreateUser(string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
     {
-        var checkUserResponse = await CheckUser(firstName, lastName, email);
+        var checkUserResponse = await CheckUser(firstName, lastName, email, dob, country, city, street, zip);
         if (checkUserResponse.Exists == true)
         {
             return true;
@@ -18,7 +18,7 @@ public class HittikasinoApi
 
         if (checkUserResponse.Valid == true && checkUserResponse.Errors == 0)
         {
-            await CreateUser(firstName, lastName, email);
+            await CreateUser(firstName, lastName, email, dob, country, city, street, zip);
             return true;
         }
 
@@ -26,9 +26,9 @@ public class HittikasinoApi
 
     }
 
-    private static async Task CreateUser(string firstName, string lastName, string email)
+    private static async Task CreateUser(string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
     {
-        var paramsDic = GetParams(firstName, lastName, email);
+        var paramsDic = GetParams(firstName, lastName, email, dob, country, city, street, zip);
         var plain = string.Concat(paramsDic["email"], "8cf2bf68bd066d37bcfaaae26251c365");
         var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
         var registrationUrl = QueryHelpers.AddQueryString(String.Concat("https://beta.hittikasino.com/a/pr/ma/", hash, "/"), paramsDic);
@@ -40,11 +40,11 @@ public class HittikasinoApi
         await client.SendAsync(requestMessage);
     }
 
-    private static async Task<CheckUserResponse> CheckUser(string firstName, string lastName, string email)
+    private static async Task<CheckUserResponse> CheckUser(string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
     {
         try
         {
-            var paramsDic = GetParams(firstName, lastName, email);
+            var paramsDic = GetParams(firstName, lastName, email, dob, country, city, street, zip);
             var plain = string.Concat(string.Concat(paramsDic.OrderBy(x => x.Key).Select(x => string.Concat(x.Key, x.Value))), "8cf2bf68bd066d37bcfaaae26251c365");
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("sign", hash);
@@ -63,15 +63,38 @@ public class HittikasinoApi
         }
     }
 
-    private static Dictionary<string, string> GetParams(string firstName, string lastName, string email)
+    private static Dictionary<string, string> GetParams(string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
     {
         var paramsDic = new Dictionary<string, string>
         {
             { "ident", "ma" },
             { "email", email },
             { "first_name", firstName },
-            { "last_name", lastName },
+            { "last_name", lastName }
         };
+        if (dob.HasValue)
+        {
+            paramsDic.Add("birth_day", dob.Value.Day.ToString());
+            paramsDic.Add("birth_month", dob.Value.Month.ToString());
+            paramsDic.Add("birth_year", dob.Value.Year.ToString());
+        }
+
+        if (country != null)
+        {
+            paramsDic.Add("address_country", country);
+        }
+        if (city != null)
+        {
+            paramsDic.Add("address_city", city);
+        }
+        if (street != null)
+        {
+            paramsDic.Add("address_street", street);
+        }
+        if (zip != null)
+        {
+            paramsDic.Add("address_zip", zip);
+        }
         return paramsDic;
     }
 

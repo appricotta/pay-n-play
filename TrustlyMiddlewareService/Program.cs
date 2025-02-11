@@ -1,5 +1,7 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.FileProviders;
 using Newtonsoft.Json;
 using Serilog;
 using TrustlyMiddlewareService;
@@ -32,6 +34,13 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseCors("AllowAll");
 
+app.UseFileServer(new FileServerOptions
+{
+    FileProvider = new PhysicalFileProvider(Path.Combine(Directory.GetCurrentDirectory(), "test")),
+    RequestPath = "/test",
+    EnableDefaultFiles = true
+});
+
 app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger) =>
 {
     try
@@ -54,21 +63,46 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
         if (method == "kyc")
         {
             var uuid = (string)notification["params"].uuid;
-            var data = notification["params"].data;
-            var attributes = data.attributes;
-            var firstname = (string)attributes.firstname;
-            var lastname = (string)attributes.lastname;
-            var messageid = (string)data.messageid;
-            var encodedEmail = messageid.Substring(36);
-            var email = Encoding.ASCII.GetString(Convert.FromBase64String(encodedEmail));
-            if (await HittikasinoApi.TryCreateUser(firstname, lastname, email))
+            try
             {
-                logger.LogDebug(string.Concat("Respond to a KYC notification: CONTINUE"));
-                await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
-            }
-            else
+                var data = notification["params"].data;
+                var abortmessage = (string?)data.abortmessage;
+                if (abortmessage == null)
+                {
+                    var attributes = data.attributes;
+                    var firstname = (string)attributes.firstname;
+                    var lastname = (string)attributes.lastname;
+                    var dob = (string?)attributes.dob is { } dobStr ? DateOnly.Parse(dobStr) : (DateOnly?)null;
+                    var street = (string?)attributes.street;
+                    var zipcode = (string?)attributes.zipcode;
+                    var city = (string?)attributes.city;
+                    var country = (string?)attributes.country;
+                    var messageid = (string)data.messageid;
+                    var encodedData = messageid.Substring(36);
+                    var additionalData = Encoding.ASCII.GetString(Convert.FromBase64String(encodedData));
+                    var currency = additionalData.Substring(0, 3);
+                    var email = additionalData.Substring(3);
+                    //email = "test19@gmail.com";
+                    if (await HittikasinoApi.TryCreateUser(firstname, lastname, email, dob, country, city, street, zipcode)
+                        && await CarousellerApi.KeyObtain(uuid, currency, firstname, lastname, email, dob, country, city, street, zipcode))
+                    {
+                        logger.LogDebug(string.Concat("Response to a KYC notification: CONTINUE"));
+                        await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
+                    }
+                    else
+                    {
+                        logger.LogDebug(string.Concat("Response to a KYC notification: FINISH"));
+                        await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
+                    }
+                }
+                else
+                {
+                    logger.LogDebug(string.Concat("Abortmessage in KYC notification: ", abortmessage, ". Response: FINISH"));
+                    await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
+                }
+            } catch (Exception ex)
             {
-                logger.LogDebug(string.Concat("Respond to a KYC notification: FINISH"));
+                logger.LogError(ex, "Error in KYC notification. Response: FINISH");
                 await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
             }
         }
