@@ -8,9 +8,11 @@ namespace TrustlyMiddlewareService;
 
 public class TrustlyApi
 {
-    public static async Task<DepositResponse> Deposite(string email, double amount, string currency, string country, string locale, string successUrl, string failUrl)
+    private static readonly byte[] Key = Encoding.UTF8.GetBytes("VjdwUn8zUWOkqaK7mHb4TYiGCVlM9GNe");
+
+    public static async Task<DepositResponse> Deposite(string email, double amount, string password, string currency, string country, string locale, string successUrl, string failUrl)
     {
-        var body = GetDepositRequestBody(email, amount, currency, country, locale, successUrl, failUrl);
+        var body = GetDepositRequestBody(email, amount, password, currency, country, locale, successUrl, failUrl);
         string plaintext = GetPlaintext((string)body.method, (string)body["params"].UUID, ((JObject)body["params"].Data).ToObject<Dictionary<string, object>>()!);
         string signed = Sign(plaintext);
         body["params"].Signature = signed;
@@ -45,13 +47,12 @@ public class TrustlyApi
 }}";
         return JsonConvert.DeserializeObject<dynamic>(json)!;
     }
-
-    static dynamic GetDepositRequestBody(string email, double amount, string currency, string country, string locale, string successUrl, string failUrl)
+    
+    static dynamic GetDepositRequestBody(string email, double amount, string password, string currency, string country, string locale, string successUrl, string failUrl)
     {
         var uuid = Guid.NewGuid().ToString();
         var notificationUrl = "https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications";
-        var encodedData = Convert.ToBase64String(Encoding.ASCII.GetBytes(string.Concat(currency,email)));
-        var messageId = string.Concat(Guid.NewGuid().ToString(), encodedData);
+        var messageId = SerializeMessageId(email, password, currency);
         var json = @$"{{
   ""method"": ""Deposit"",
   ""params"": {{
@@ -140,6 +141,76 @@ public class TrustlyApi
         }
 
         throw new Exception("Signature is not valid.");
+    }
+
+    static string SerializeMessageId(string email, string password, string currency)
+    {
+        byte[] rawData = EncodeBinary(currency, email, password);
+        byte[] encryptedData = Encrypt(rawData);
+        string messageId = Convert.ToBase64String(encryptedData);
+        return messageId;
+    }
+
+    public static (string currency, string email, string password) DeserializeMessageId(string messageId)
+    {
+        byte[] decodedData = Convert.FromBase64String(messageId);
+        byte[] decryptedData = Decrypt(decodedData);
+        var (timestamp, randomBytes, currency, email, password) = DecodeBinary(decryptedData);
+        return (currency, email, password);
+    }
+
+    static byte[] EncodeBinary(string currency, string email, string password)
+    {
+        byte[] currencyBytes = Encoding.ASCII.GetBytes(currency); // 3 bytes
+        byte[] emailBytes = Encoding.UTF8.GetBytes(email);
+        byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
+        
+        byte[] timestampBytes = BitConverter.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        byte[] randomBytes = new byte[4];
+        RandomNumberGenerator.Fill(randomBytes);
+
+        return timestampBytes.Concat(randomBytes).Concat(currencyBytes).Concat(emailBytes).Concat(new byte[] { 0x00 }).Concat(passwordBytes).ToArray();
+    }
+
+    static (long timestamp, byte[] randomBytes, string currency, string email, string password) DecodeBinary(byte[] data)
+    {
+        long timestamp = BitConverter.ToInt64(data, 0);
+        byte[] randomBytes = data.Skip(8).Take(4).ToArray();
+        string currency = Encoding.ASCII.GetString(data, 12, 3);
+        int separatorIndex = Array.IndexOf(data, (byte)0, 15);
+        string email = Encoding.UTF8.GetString(data, 15, separatorIndex - 15);
+        string password = Encoding.UTF8.GetString(data, separatorIndex + 1, data.Length - separatorIndex - 1);
+        return (timestamp, randomBytes, currency, email, password);
+    }
+
+    static byte[] Encrypt(byte[] plainBytes)
+    {
+        using Aes aesAlg = Aes.Create();
+        aesAlg.Key = Key;
+        aesAlg.Mode = CipherMode.ECB;
+        aesAlg.Padding = PaddingMode.PKCS7;
+
+        using MemoryStream msEncrypt = new();
+        using CryptoStream csEncrypt = new(msEncrypt, aesAlg.CreateEncryptor(), CryptoStreamMode.Write);
+        csEncrypt.Write(plainBytes, 0, plainBytes.Length);
+        csEncrypt.FlushFinalBlock();
+
+        return msEncrypt.ToArray();
+    }
+    
+    static byte[] Decrypt(byte[] cipherBytes)
+    {
+        using Aes aesAlg = Aes.Create();
+        aesAlg.Key = Key;
+        aesAlg.Mode = CipherMode.ECB;
+        aesAlg.Padding = PaddingMode.PKCS7;
+
+        using MemoryStream msDecrypt = new(cipherBytes);
+        using CryptoStream csDecrypt = new(msDecrypt, aesAlg.CreateDecryptor(), CryptoStreamMode.Read);
+        using MemoryStream resultStream = new();
+        csDecrypt.CopyTo(resultStream);
+
+        return resultStream.ToArray();
     }
 }
 

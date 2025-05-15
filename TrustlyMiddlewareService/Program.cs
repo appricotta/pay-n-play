@@ -1,5 +1,4 @@
-﻿using System;
-using System.Text;
+﻿using System.Text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.FileProviders;
 using Newtonsoft.Json;
@@ -7,7 +6,6 @@ using Serilog;
 using TrustlyMiddlewareService;
 
 //await HittikasinoApi.TryCreateUser("Mateo", "Lundin", "qwe2@qq.q");
-
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
 {
@@ -22,6 +20,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSerilog(lc => lc.ReadFrom.Configuration(builder.Configuration));
+builder.Services.AddSingleton<HittikasinoApi>();
+builder.Services.AddSingleton<CarousellerApi>();
 
 var app = builder.Build();
 
@@ -46,14 +46,28 @@ app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger
     try
     {
         logger.LogDebug(deposit.ToString());
-        return await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Currency, deposit.Country, deposit.Locale, deposit.SuccessUrl, deposit.FailUrl);
+        return await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.SuccessUrl, deposit.FailUrl);
     } catch (Exception ex)
     {
         logger.LogError(ex, null);
         throw;
     }
 });
-app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger) =>
+
+app.MapPost("/trustly/login", async ([FromBody] DepositParams deposit, ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogDebug(deposit.ToString());
+        return await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.SuccessUrl, deposit.FailUrl);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, null);
+        throw;
+    }
+});
+app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, HittikasinoApi hittikasinoApi, CarousellerApi carousellerApi) =>
 {
     try
     {
@@ -78,13 +92,16 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                     var city = (string?)attributes.city;
                     var country = (string?)attributes.country;
                     var messageid = (string)data.messageid;
-                    var encodedData = messageid.Substring(36);
-                    var additionalData = Encoding.ASCII.GetString(Convert.FromBase64String(encodedData));
-                    var currency = additionalData.Substring(0, 3);
-                    var email = additionalData.Substring(3);
+                    var orderid = (string)data.orderid;
+
+
+                    var decodedData = TrustlyApi.DeserializeMessageId(messageid);
+                    var currency = decodedData.currency;
+                    var email = decodedData.email;
+                    var password = decodedData.password;
                     //email = "test19@gmail.com";
-                    if (await HittikasinoApi.TryCreateUser(firstname, lastname, email, dob, country, city, street, zipcode)
-                        && await CarousellerApi.KeyObtain(uuid, currency, firstname, lastname, email, dob, country, city, street, zipcode))
+                    if (await hittikasinoApi.TryCreateUser(firstname, lastname, email, password, dob, country, city, street, zipcode)
+                        && await carousellerApi.KeyObtain(orderid, currency, firstname, lastname, email, dob, country, city, street, zipcode))
                     {
                         logger.LogDebug(string.Concat("Response to a KYC notification: CONTINUE"));
                         await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
@@ -139,9 +156,33 @@ app.MapPost("/trustly/notifications2", async ([FromBody] object body, HttpContex
         throw;
     }
 });
+app.MapPost("/trustly/notifications3", async ([FromBody] object body, HttpContext context, ILogger<Program> logger) =>
+{
+    try
+    {
+        logger.LogDebug(body.ToString()!);
+        var notification = JsonConvert.DeserializeObject<dynamic>(body.ToString()!)!;
+        string method = notification.method;
+        var uuid = (string)notification["params"].uuid;
+        if (method == "kyc")
+        {
+            await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
+        }
+        else
+        {
+            await TrustlyApi.Response(context.Response, uuid, method, "OK");
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, null);
+        throw;
+    }
+});
 
 app.Run();
 
 
 
-public record DepositParams(string Email, double Amount, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);
+public record DepositParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);
+public record LoginParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);

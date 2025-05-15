@@ -2,22 +2,32 @@
 using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
+using System;
 
 namespace TrustlyMiddlewareService
 {
     public class CarousellerApi
     {
-        public static async Task<bool> KeyObtain(string transactionId, string currency, string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        private readonly ILogger<CarousellerApi> _logger;
+
+        public CarousellerApi(ILogger<CarousellerApi> logger)
+        {
+            _logger = logger;
+        }
+
+        public async Task<bool> KeyObtain(string transactionId, string currency, string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
         {
             var paramsDic = GetParams(transactionId, currency, firstName, lastName, email, dob, country, city, street, zip);
             var plain = GetPlaintext(paramsDic);
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("signature", hash);
-            var registrationUrl = QueryHelpers.AddQueryString("https://a.papaya.ninja/api/authlink/obtain/", paramsDic);
+            var url = QueryHelpers.AddQueryString("https://a.papaya.ninja/api/authlink/obtain/", paramsDic);
+            _logger.LogDebug($"KeyObtain request: {url}");
             var client = new HttpClient();
-            var requestMessage = new HttpRequestMessage(HttpMethod.Get, registrationUrl);
+            var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
             var response = await client.SendAsync(requestMessage);
             string responseContent = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug($"KeyObtain response: {responseContent}");
             var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent)!;
             return responseObj.success == true;
         }
