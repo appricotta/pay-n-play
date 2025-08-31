@@ -15,9 +15,9 @@ namespace TrustlyMiddlewareService
             _logger = logger;
         }
 
-        public async Task<bool> KeyObtain(string transactionId, string currency, string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        public async Task<bool> KeyObtain(string transactionId, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
         {
-            var paramsDic = GetParams(transactionId, currency, firstName, lastName, email, dob, country, city, street, zip);
+            var paramsDic = GetParams(transactionId, currency, firstName, lastName, email, siteLogin, dob, country, city, street, zip);
             var plain = GetPlaintext(paramsDic);
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("signature", hash);
@@ -32,12 +32,12 @@ namespace TrustlyMiddlewareService
             return responseObj.success == true;
         }
 
-        private static Dictionary<string, string> GetParams(string transactionId, string currency, string firstName, string lastName, string email, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        private static Dictionary<string, string?> GetParams(string transactionId, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
         {
-            var paramsDic = new Dictionary<string, string>
+            var paramsDic = new Dictionary<string, string?>
             {
                 { "site_id", "96" },
-                { "site_login", "6776a5db46ad7e9f4753862c" },
+                { "site_login", siteLogin },
                 { "user_email", email },
                 { "customer_ip", "8.8.8.8" },
                 { "user_name", string.Concat(firstName, " ", lastName) },
@@ -70,7 +70,7 @@ namespace TrustlyMiddlewareService
             return paramsDic;
         }
 
-        static string GetPlaintext(Dictionary<string, string> data)
+        static string GetPlaintext(Dictionary<string, string?> data)
         {
             var plaintextBuilder = new StringBuilder();
             foreach (var property in data.OrderBy(x => x.Key))
