@@ -19,32 +19,29 @@ public class HittikasinoApi
         _logger = logger;
     }
 
-    public async Task<bool> TryCreateUser(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip)
+    public async Task<CreateUserResponse> TryCreateUser(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId = null)
     {
         var checkUserResponse = await CheckUser(firstName, lastName, email, password, dob, country, city, street, zip);
-        if (checkUserResponse.Exists == true)
+        if (checkUserResponse.Exists == true || (checkUserResponse.Valid == true && checkUserResponse.Errors == 0))
         {
-            return true;
+            return await CreateUser(firstName, lastName, email, password, dob, country, city, street, zip, partnerId);
         }
-
-        if (checkUserResponse.Valid == true && checkUserResponse.Errors == 0)
-        {
-            //await Task.Delay(30000);
-            await CreateUser(firstName, lastName, email, password, dob, country, city, street, zip);
-            checkUserResponse = await CheckUser(firstName, lastName, email, password, dob, country, city, street, zip);
-            if (checkUserResponse.Exists == true)
-            {
-                return true;
-            }
-        }
-
-        return false;
+        return new CreateUserResponse(false, null, null);
 
     }
 
-    private async Task CreateUser(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip)
+    private async Task<CreateUserResponse> CreateUser(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId = null)
     {
         var paramsDic = GetParams(firstName, lastName, email, password, dob, country, city, street, zip);
+        paramsDic.Add("user_id","on");
+        paramsDic.Add("av_check", "true");
+        
+        // Add partner parameter if provided
+        if (!string.IsNullOrEmpty(partnerId))
+        {
+            paramsDic.Add("partner", partnerId);
+        }
+        
         var plain = string.Concat(paramsDic["email"], _secret);
         var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
         var registrationUrl = QueryHelpers.AddQueryString(String.Concat("https://hittikasino.com/a/pr/", _ident, "/", hash, "/"), paramsDic);
@@ -57,6 +54,8 @@ public class HittikasinoApi
         var response = await client.SendAsync(requestMessage);
         string responseContent = await response.Content.ReadAsStringAsync();
         _logger.LogDebug($"Create user. Response code: {response.StatusCode}. Response content: {responseContent}");
+        var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
+        return new CreateUserResponse(true, (string)responseObj.user_id, (string)responseObj.autologin);
     }
 
     private static HttpClient CreateHttpClient()
@@ -100,9 +99,9 @@ public class HittikasinoApi
         }
     }
 
-    private static Dictionary<string, string> GetParams(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip)
+    private static Dictionary<string, string?> GetParams(string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip)
     {
-        var paramsDic = new Dictionary<string, string>
+        var paramsDic = new Dictionary<string, string?>
         {
             { "ident", _ident },
             { "email", email },
@@ -137,4 +136,6 @@ public class HittikasinoApi
     }
 
     record CheckUserResponse(bool? Exists, bool? Valid, int Errors);
+
+    public record CreateUserResponse(bool Exists, string? UserId, string? SuccessLoginUrl);
 }

@@ -10,15 +10,16 @@ public class TrustlyApi
 {
     private static readonly byte[] Key = Encoding.UTF8.GetBytes("VjdwUn8zUWOkqaK7mHb4TYiGCVlM9GNe");
 
-    public static async Task<DepositResponse> Deposite(string email, double amount, string password, string currency, string country, string locale, string successUrl, string failUrl)
+    public static async Task<DepositResponse> Deposite(string email, double amount, string password, string currency, string country, string locale, string failUrl)
     {
-        var body = GetDepositRequestBody(email, amount, password, currency, country, locale, successUrl, failUrl);
+        var messageId = SerializeMessageId(password);
+        var body = await GetDepositRequestBody(messageId, email, amount, password, currency, country, locale, failUrl);
         string plaintext = GetPlaintext((string)body.method, (string)body["params"].UUID, ((JObject)body["params"].Data).ToObject<Dictionary<string, object>>()!);
         string signed = Sign(plaintext);
         body["params"].Signature = signed;
         var responseContent = await Post(body);
         dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).result.data;
-        return new DepositResponse((string)responseData.url, (string)responseData.orderid);
+        return new DepositResponse((string)responseData.url, (string)responseData.orderid, messageId);
     }
     public static async Task Response(HttpResponse response, string uuid, string method, string status)
     {
@@ -48,11 +49,11 @@ public class TrustlyApi
         return JsonConvert.DeserializeObject<dynamic>(json)!;
     }
     
-    static dynamic GetDepositRequestBody(string email, double amount, string password, string currency, string country, string locale, string successUrl, string failUrl)
+    static async Task<dynamic> GetDepositRequestBody(string messageId, string email, double amount, string password, string currency, string country, string locale, string failUrl)
     {
         var uuid = Guid.NewGuid().ToString();
         var notificationUrl = "https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications";
-        var messageId = SerializeMessageId(email, password, currency);
+        var successUrl = $"https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/success?messageid={messageId}";
         var json = @$"{{
   ""method"": ""Deposit"",
   ""params"": {{
@@ -143,44 +144,53 @@ public class TrustlyApi
         throw new Exception("Signature is not valid.");
     }
 
-    static string SerializeMessageId(string email, string password, string currency)
+    static string SerializeMessageId(string password)
     {
-        byte[] rawData = EncodeBinary(currency, email, password);
+        byte[] rawData = EncodeBinary(password);
         byte[] encryptedData = Encrypt(rawData);
-        string messageId = Convert.ToBase64String(encryptedData);
+        string messageId = Convert.ToBase64String(encryptedData)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .TrimEnd('=');
         return messageId;
     }
 
-    public static (string currency, string email, string password) DeserializeMessageId(string messageId)
+    public static string DeserializeMessageId(string messageId)
     {
-        byte[] decodedData = Convert.FromBase64String(messageId);
+        // Restore URL-safe Base64 to standard Base64
+        string standardBase64 = messageId
+            .Replace('-', '+')
+            .Replace('_', '/');
+        
+        // Add padding if needed
+        switch (standardBase64.Length % 4)
+        {
+            case 2: standardBase64 += "=="; break;
+            case 3: standardBase64 += "="; break;
+        }
+        
+        byte[] decodedData = Convert.FromBase64String(standardBase64);
         byte[] decryptedData = Decrypt(decodedData);
-        var (timestamp, randomBytes, currency, email, password) = DecodeBinary(decryptedData);
-        return (currency, email, password);
+        var (timestamp, randomBytes, password) = DecodeBinaryPassword(decryptedData);
+        return password;
     }
 
-    static byte[] EncodeBinary(string currency, string email, string password)
+    static byte[] EncodeBinary(string password)
     {
-        byte[] currencyBytes = Encoding.ASCII.GetBytes(currency); // 3 bytes
-        byte[] emailBytes = Encoding.UTF8.GetBytes(email);
         byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
-        
         byte[] timestampBytes = BitConverter.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         byte[] randomBytes = new byte[4];
         RandomNumberGenerator.Fill(randomBytes);
 
-        return timestampBytes.Concat(randomBytes).Concat(currencyBytes).Concat(emailBytes).Concat(new byte[] { 0x00 }).Concat(passwordBytes).ToArray();
+        return timestampBytes.Concat(randomBytes).Concat(passwordBytes).ToArray();
     }
 
-    static (long timestamp, byte[] randomBytes, string currency, string email, string password) DecodeBinary(byte[] data)
+    static (long timestamp, byte[] randomBytes, string password) DecodeBinaryPassword(byte[] data)
     {
         long timestamp = BitConverter.ToInt64(data, 0);
         byte[] randomBytes = data.Skip(8).Take(4).ToArray();
-        string currency = Encoding.ASCII.GetString(data, 12, 3);
-        int separatorIndex = Array.IndexOf(data, (byte)0, 15);
-        string email = Encoding.UTF8.GetString(data, 15, separatorIndex - 15);
-        string password = Encoding.UTF8.GetString(data, separatorIndex + 1, data.Length - separatorIndex - 1);
-        return (timestamp, randomBytes, currency, email, password);
+        string password = Encoding.UTF8.GetString(data, 12, data.Length - 12);
+        return (timestamp, randomBytes, password);
     }
 
     static byte[] Encrypt(byte[] plainBytes)
@@ -214,4 +224,4 @@ public class TrustlyApi
     }
 }
 
-public record DepositResponse(string Url, string OrderId);
+public record DepositResponse(string Url, string OrderId, string MessageId);

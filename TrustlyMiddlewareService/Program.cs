@@ -4,6 +4,7 @@ using Microsoft.Extensions.FileProviders;
 using Newtonsoft.Json;
 using Serilog;
 using TrustlyMiddlewareService;
+using TrustlyMiddlewareService.Repositories;
 
 //await HittikasinoApi.TryCreateUser("Mateo", "Lundin", "qwe2@qq.q");
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSerilog(lc => lc.ReadFrom.Configuration(builder.Configuration));
 builder.Services.AddSingleton<HittikasinoApi>();
 builder.Services.AddSingleton<CarousellerApi>();
+builder.Services.AddSingleton<ITrustlySessionRepository, TrustlySessionRepository>();
 
 var app = builder.Build();
 
@@ -41,12 +43,45 @@ app.UseFileServer(new FileServerOptions
     EnableDefaultFiles = true
 });
 
-app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger) =>
+app.MapGet("/trustly/success", async (string messageid, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, HttpContext context) =>
+{
+    try
+    {
+        var sessionData = await sessionRepository.GetSessionAsync(messageid);
+        logger.LogDebug(string.Concat("Trustly success redirect. SessionData: ", sessionData == null ? "null" : JsonConvert.SerializeObject(sessionData)));
+        
+        if (sessionData == null)
+        {
+            context.Response.StatusCode = 404;
+            await context.Response.WriteAsync("Session data not found");
+            return;
+        }
+        
+        if (string.IsNullOrEmpty(sessionData.SuccessLoginUrl))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("SuccessLoginUrl is missing");
+            return;
+        }
+        
+        context.Response.Redirect(sessionData.SuccessLoginUrl);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error in /trustly/success endpoint");
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsync("Internal server error");
+    }
+});
+
+app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository) =>
 {
     try
     {
         logger.LogDebug(deposit.ToString());
-        return await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.SuccessUrl, deposit.FailUrl);
+        var depositResponse =  await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
+        await sessionRepository.CreateSessionAsync(depositResponse.MessageId, deposit.Email, deposit.Currency, deposit.PartnerId);
+        return depositResponse;
     } catch (Exception ex)
     {
         logger.LogError(ex, null);
@@ -54,12 +89,14 @@ app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger
     }
 });
 
-app.MapPost("/trustly/login", async ([FromBody] DepositParams deposit, ILogger<Program> logger) =>
+app.MapPost("/trustly/login", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository) =>
 {
     try
     {
         logger.LogDebug(deposit.ToString());
-        return await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.SuccessUrl, deposit.FailUrl);
+        var depositResponse = await TrustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
+        await sessionRepository.CreateSessionAsync(depositResponse.MessageId, deposit.Email, deposit.Currency, deposit.PartnerId);
+        return depositResponse;
     }
     catch (Exception ex)
     {
@@ -67,7 +104,7 @@ app.MapPost("/trustly/login", async ([FromBody] DepositParams deposit, ILogger<P
         throw;
     }
 });
-app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, HittikasinoApi hittikasinoApi, CarousellerApi carousellerApi) =>
+app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, HittikasinoApi hittikasinoApi, CarousellerApi carousellerApi, ITrustlySessionRepository sessionRepository) =>
 {
     try
     {
@@ -94,22 +131,51 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                     var messageid = (string)data.messageid;
                     var orderid = (string)data.orderid;
 
-
-                    var decodedData = TrustlyApi.DeserializeMessageId(messageid);
-                    var currency = decodedData.currency;
-                    var email = decodedData.email;
-                    var password = decodedData.password;
+                    // Try to get session data from MongoDB first
+                    var sessionData = await sessionRepository.GetSessionAsync(messageid);
+                    string currency, email, password;
+                    string? partnerId;
+                    
+                    if (sessionData != null)
+                    {
+                        // Use data from MongoDB
+                        currency = sessionData.Currency;
+                        email = sessionData.Email;
+                        partnerId = sessionData.PartnerId;
+                        // Get password from encrypted messageId
+                        password = TrustlyApi.DeserializeMessageId(messageid);
+                    }
+                    else
+                    {
+                        throw new Exception($"Session data not found for messageId: {messageid}");
+                    }
                     //email = "test19@gmail.com";
-                    if (await hittikasinoApi.TryCreateUser(firstname, lastname, email, password, dob, country, city, street, zipcode)
-                        && await carousellerApi.KeyObtain(orderid, currency, firstname, lastname, email, dob, country, city, street, zipcode))
+                    var createUserResponse = await hittikasinoApi.TryCreateUser(firstname, lastname, email, password, dob, country, city, street, zipcode, partnerId);
+                    if (createUserResponse.Exists && createUserResponse.UserId != null
+                        && await carousellerApi.KeyObtain(orderid, currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode))
                     {
                         logger.LogDebug(string.Concat("Response to a KYC notification: CONTINUE"));
+                        if (createUserResponse.SuccessLoginUrl != null)
+                        {
+                            await sessionRepository.UpdateSuccessLoginUrlAsync(messageid, createUserResponse.SuccessLoginUrl);
+                        }
+
                         await TrustlyApi.Response(context.Response, uuid, "kyc", "CONTINUE");
+                        // Clean up session data after successful processing
+                        //if (sessionData != null)
+                        //{
+                        //    await sessionRepository.DeleteSessionAsync(messageid);
+                        //}
                     }
                     else
                     {
                         logger.LogDebug(string.Concat("Response to a KYC notification: FINISH"));
                         await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
+                        // Clean up session data after processing
+                        //if (sessionData != null)
+                        //{
+                        //    await sessionRepository.DeleteSessionAsync(messageid);
+                        //}
                     }
                 }
                 else
@@ -128,7 +194,6 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
             var client = new HttpClient();
             var stringPayload = JsonConvert.SerializeObject(notification);
             var httpContent = new StringContent(stringPayload, Encoding.UTF8, "application/json");
-            //var redirectResp = await client.PostAsync("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/notifications2", httpContent);
             var redirectResp = await client.PostAsync("https://a.papaya.ninja/trustly/gate/mobinc/", httpContent);
             var content = await redirectResp.Content.ReadAsStringAsync();
             logger.LogDebug(string.Concat("Redirected response content: ", content));
@@ -140,49 +205,10 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
         throw;
     }
 });
-app.MapPost("/trustly/notifications2", async ([FromBody] object body, HttpContext context, ILogger<Program> logger) =>
-{
-    try
-    {
-        logger.LogDebug(body.ToString()!);
-        var notification = JsonConvert.DeserializeObject<dynamic>(body.ToString()!)!;
-        string method = notification.method;
-        var uuid = (string)notification["params"].uuid;
-        await TrustlyApi.Response(context.Response, uuid, method, "OK");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, null);
-        throw;
-    }
-});
-app.MapPost("/trustly/notifications3", async ([FromBody] object body, HttpContext context, ILogger<Program> logger) =>
-{
-    try
-    {
-        logger.LogDebug(body.ToString()!);
-        var notification = JsonConvert.DeserializeObject<dynamic>(body.ToString()!)!;
-        string method = notification.method;
-        var uuid = (string)notification["params"].uuid;
-        if (method == "kyc")
-        {
-            await TrustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
-        }
-        else
-        {
-            await TrustlyApi.Response(context.Response, uuid, method, "OK");
-        }
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, null);
-        throw;
-    }
-});
 
 app.Run();
 
 
 
-public record DepositParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);
-public record LoginParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string SuccessUrl, string FailUrl);
+public record DepositParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string FailUrl, string PartnerId);
+public record LoginParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string FailUrl);
