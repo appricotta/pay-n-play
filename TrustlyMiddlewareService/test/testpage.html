@@ -2,29 +2,33 @@
 <html>
 <body style="background-color:powderblue;">
 <div style="background-color:white; height: 600px; width: 600px;">
-    <div id="trustly-deposite-content">
+    <div id="deposite-content">
         <div style="padding: 40px">
-            <span>Amount: <input id="trustly-deposite-amount" /></span>
+            <span>Amount: <input id="deposite-amount" /></span>
             </br>
-            <span>Email: <input id="trustly-deposite-email" /></span>
+            <span>Email: <input id="deposite-email" /></span>
             </br>
-            <button id="trustly-deposite-continue">Continue</button>
+            <span>Password: <input id="deposite-password" /></span>
+            </br>
+            <button id="deposite-continue">Continue</button>
         </div>
     </div>
     <script>
-        var btn = document.getElementById("trustly-deposite-continue");
+        var btn = document.getElementById("deposite-continue");
         btn.onclick = function openPaymentLink() {
-            var amount = document.getElementById("trustly-deposite-amount").value;
-            var email = document.getElementById("trustly-deposite-email").value;
-            fetch("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trustly/deposit", {
+            var amount = document.getElementById("deposite-amount").value;
+            var email = document.getElementById("deposite-email").value;
+            var password = document.getElementById("deposite-password").value;
+            fetch("https://tms-acctdbazacbnbvda.westeurope-01.azurewebsites.net/trumo/deposit", {
                     method: "POST",
                     body: JSON.stringify({
                         Email: email,
+                        Password: password,
                         Amount: amount,
                         Currency: "EUR",
-                        Country: "PLN",
-                        Locale: "en_US",
-                        SuccessURL: "https://yourpage.com/success",
+                        Country: "FI",
+                        Locale: "fi_FI",
+                        PartnerId: "testPartner",
                         FailURL: "https://yourpage.com/fail"
                     }),
                     headers: {
@@ -32,7 +36,7 @@
                     }
                 })
                 .then((response) => response.json())
-                .then((json) => document.getElementById('trustly-deposite-content').innerHTML = "<iframe style='height: 600px; width: 600px;' src='" + json.url + "'></iframe>");
+                .then((json) => document.getElementById('deposite-content').innerHTML = "<iframe style='height: 600px; width: 600px;' src='" + json.url + "'></iframe>");
         }
     </script>
 </div>

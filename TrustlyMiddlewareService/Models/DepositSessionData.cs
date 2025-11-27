@@ -2,10 +2,11 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace TrustlyMiddlewareService.Models;
 
-public class TrustlySessionData
+public class DepositSessionData
 {
     [BsonId]
     public string MessageId { get; set; } = string.Empty;
+    public string PaymentProvider { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Currency { get; set; } = string.Empty;
     public string? PartnerId { get; set; }

@@ -15,9 +15,9 @@ namespace TrustlyMiddlewareService
             _logger = logger;
         }
 
-        public async Task<bool> KeyObtain(string transactionId, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        public async Task<bool> KeyObtain(KeyValuePair<string, string> transactionParam, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
         {
-            var paramsDic = GetParams(transactionId, currency, firstName, lastName, email, siteLogin, dob, country, city, street, zip);
+            var paramsDic = GetParams(transactionParam, currency, firstName, lastName, email, siteLogin, dob, country, city, street, zip);
             var plain = GetPlaintext(paramsDic);
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("signature", hash);
@@ -32,7 +32,7 @@ namespace TrustlyMiddlewareService
             return responseObj.success == true;
         }
 
-        private static Dictionary<string, string?> GetParams(string transactionId, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        private static Dictionary<string, string?> GetParams(KeyValuePair<string, string> transactionParam, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
         {
             var paramsDic = new Dictionary<string, string?>
             {
@@ -44,7 +44,7 @@ namespace TrustlyMiddlewareService
                 { "first_name", firstName },
                 { "last_name", lastName },
                 { "currency", currency.ToUpper() },
-                { "trustly_uuid", transactionId }
+                { transactionParam.Key, transactionParam.Value }
             };
             if (dob.HasValue)
             {

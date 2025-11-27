@@ -7,14 +7,27 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="cert\private.pem" />
+    <Compile Remove="NewFolder\**" />
+    <Content Remove="NewFolder\**" />
+    <EmbeddedResource Remove="NewFolder\**" />
+    <None Remove="NewFolder\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="cert\private.pem">
+    <None Remove="cert\client_trumo_private.pem" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="cert\client_trumo_private.pem">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>
-    <EmbeddedResource Include="cert\trustly_public_test.pem">
+    <EmbeddedResource Include="cert\client_trustly_private.pem">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="cert\server_trumo_public_staging.pem">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </EmbeddedResource>
+    <EmbeddedResource Include="cert\server_trustly_public_test.pem">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </EmbeddedResource>
   </ItemGroup>
