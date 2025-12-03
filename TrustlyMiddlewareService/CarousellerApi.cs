@@ -21,7 +21,7 @@ namespace TrustlyMiddlewareService
             var plain = GetPlaintext(paramsDic);
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("signature", hash);
-            var url = QueryHelpers.AddQueryString("https://a.papaya.ninja/api/authlink/obtain/", paramsDic);
+            var url = BuildQueryString("https://a.papaya.ninja/api/authlink/obtain/", paramsDic);
             _logger.LogDebug($"KeyObtain request: {url}");
             var client = new HttpClient();
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
@@ -83,6 +83,36 @@ namespace TrustlyMiddlewareService
             plaintextBuilder.Append("SEF3235kjkhg48uiw43edwt657asRnnsQWh8sl");
             //SEF3235kjkhg48uiw43edwt657asRnnsQWh8sl
             return plaintextBuilder.ToString();
+        }
+
+        private static string BuildQueryString(string baseUrl, Dictionary<string, string?> parameters)
+        {
+            var queryParams = new List<string>();
+
+            foreach (var kvp in parameters)
+            {
+                if (kvp.Value == null) continue;
+
+                string encodedKey = Uri.EscapeDataString(kvp.Key);
+                string encodedValue;
+
+                if (kvp.Key == "trumo_uuid")
+                {
+                    // Special handling: encode everything except colon
+                    // Split by colon, encode each part, then rejoin with colon
+                    var parts = kvp.Value.Split(':');
+                    encodedValue = string.Join(":", parts.Select(p => Uri.EscapeDataString(p)));
+                }
+                else
+                {
+                    // Normal encoding for all other parameters
+                    encodedValue = Uri.EscapeDataString(kvp.Value);
+                }
+
+                queryParams.Add($"{encodedKey}={encodedValue}");
+            }
+
+            return $"{baseUrl}?{string.Join("&", queryParams)}";
         }
     }
 }

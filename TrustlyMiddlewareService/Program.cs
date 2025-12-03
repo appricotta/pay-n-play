@@ -181,7 +181,7 @@ app.MapGet("/success", async (string messageid, ILogger<Program> logger, ITrustl
     try
     {
         var sessionData = await sessionRepository.GetSessionAsync(messageid);
-        logger.LogDebug(string.Concat("Trustly success redirect. SessionData: ", sessionData == null ? "null" : JsonConvert.SerializeObject(sessionData)));
+        logger.LogDebug(string.Concat("Success redirect. SessionData: ", sessionData == null ? "null" : JsonConvert.SerializeObject(sessionData)));
         
         if (sessionData == null)
         {
@@ -202,7 +202,7 @@ app.MapGet("/success", async (string messageid, ILogger<Program> logger, ITrustl
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Error in /trustly/success endpoint");
+        logger.LogError(ex, "Error in /success endpoint");
         context.Response.StatusCode = 500;
         await context.Response.WriteAsync("Internal server error");
     }
