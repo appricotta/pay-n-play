@@ -44,7 +44,9 @@ public class CasinoService
         var plain = string.Concat(paramsDic["email"], _secret);
         var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
         var registrationUrl = QueryHelpers.AddQueryString(string.Concat(casinoUrl , "/a/pr/", _ident, "/", hash, "/"), paramsDic);
-        _logger.LogDebug($"Create user request: {registrationUrl}");
+        _logger.LogInformation("Sending create user request to casino domain {CasinoDomain}", casinoUrl);
+        _logger.LogDebug("Create user request URL: {RegistrationUrl}", registrationUrl);
+
         var authStr = Convert.ToBase64String(Encoding.UTF8.GetBytes($"123:123"));
         var client = CreateHttpClient();
         var requestMessage = new HttpRequestMessage(HttpMethod.Get, registrationUrl);
@@ -52,7 +54,8 @@ public class CasinoService
         requestMessage.Headers.Add("User-Agent", "PnPMiddleware");
         var response = await client.SendAsync(requestMessage);
         string responseContent = await response.Content.ReadAsStringAsync();
-        _logger.LogDebug($"Create user. Response code: {response.StatusCode}. Response content: {responseContent}");
+        _logger.LogInformation("Create user response received with status {StatusCode}", (int)response.StatusCode);
+        _logger.LogDebug("Create user response content: {ResponseContent}", responseContent);
         var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
         string? correctUrl = null;
         if (!userExists)
@@ -65,7 +68,8 @@ public class CasinoService
                 var shouldConfirmEmail = ((string)responseObj.should_confirm_email).ToLower();
                 var userEmail = (string)responseObj.user_email;
                 correctUrl = $"{baseUrl}?redirect=/fi&should_confirm_email={shouldConfirmEmail}&user_email={userEmail}";
-                _logger.LogDebug($"correctUrl: {correctUrl}");
+                _logger.LogInformation("Auto-login URL generated with shouldConfirmEmail {ShouldConfirmEmail}", shouldConfirmEmail);
+                _logger.LogDebug("Auto-login URL: {CorrectUrl}", correctUrl);
             }
         }
         else
@@ -100,19 +104,24 @@ public class CasinoService
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("sign", hash);
             string url = QueryHelpers.AddQueryString(string.Concat(casinoUrl, "/registration/api/"), paramsDic);
-            _logger.LogDebug($"Check user request: {url}");
+            _logger.LogInformation("Sending check user request to casino domain {CasinoDomain}", casinoUrl);
+            _logger.LogDebug("Check user request URL: {Url}", url);
+
             var client = CreateHttpClient();
             var authStr = Convert.ToBase64String(Encoding.UTF8.GetBytes($"123:123"));
             var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
             requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Basic", authStr);
             var response = await client.SendAsync(requestMessage);
             string responseContent = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug($"Check user response: {responseContent}");
             var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
+            _logger.LogInformation("Check user response received with exists {UserExists}, valid {Valid}",
+                (bool?)responseObj.exists, (bool?)responseObj.valid);
+            _logger.LogDebug("Check user response content: {ResponseContent}", responseContent);
+
             return new CheckUserResponse((bool?)responseObj.exists, (bool?)responseObj.valid, (int)responseObj.error);
         } catch (Exception ex)
         {
-            _logger.LogError(ex, $"Check user response error: {ex.Message}");
+            _logger.LogError(ex, "Failed to check user existence with casino API");
             return new CheckUserResponse(false, false, 1);
         }
     }
