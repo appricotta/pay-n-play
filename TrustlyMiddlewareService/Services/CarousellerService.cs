@@ -1,16 +1,14 @@
-﻿using Microsoft.AspNetCore.WebUtilities;
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using Newtonsoft.Json;
-using System;
 
-namespace TrustlyMiddlewareService
+namespace TrustlyMiddlewareService.Services
 {
-    public class CarousellerApi
+    public class CarousellerService
     {
-        private readonly ILogger<CarousellerApi> _logger;
+        private readonly ILogger<CarousellerService> _logger;
 
-        public CarousellerApi(ILogger<CarousellerApi> logger)
+        public CarousellerService(ILogger<CarousellerService> logger)
         {
             _logger = logger;
         }
@@ -81,7 +79,6 @@ namespace TrustlyMiddlewareService
                 plaintextBuilder.Append(";");
             }
             plaintextBuilder.Append("SEF3235kjkhg48uiw43edwt657asRnnsQWh8sl");
-            //SEF3235kjkhg48uiw43edwt657asRnnsQWh8sl
             return plaintextBuilder.ToString();
         }
 
@@ -98,8 +95,6 @@ namespace TrustlyMiddlewareService
 
                 if (kvp.Key == "trumo_uuid")
                 {
-                    // Special handling: encode everything except colon
-                    // Split by colon, encode each part, then rejoin with colon
                     var parts = kvp.Value.Split(':');
                     encodedValue = string.Join(":", parts.Select(p => Uri.EscapeDataString(p)));
                 }

@@ -4,13 +4,10 @@ using Newtonsoft.Json;
 using Serilog;
 using System.Net;
 using System.Text;
-using System.Transactions;
-using TrustlyMiddlewareService;
 using TrustlyMiddlewareService.Configuration;
 using TrustlyMiddlewareService.Repositories;
 using TrustlyMiddlewareService.Services;
 
-//await CasinoApi.TryCreateUser("Mateo", "Lundin", "qwe2@qq.q");
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
 {
@@ -25,8 +22,8 @@ builder.Services.AddCors(options =>
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSerilog(lc => lc.ReadFrom.Configuration(builder.Configuration));
-builder.Services.AddSingleton<CasinoApi>();
-builder.Services.AddSingleton<CarousellerApi>();
+builder.Services.AddSingleton<CasinoService>();
+builder.Services.AddSingleton<CarousellerService>();
 builder.Services.AddSingleton<ITrustlySessionRepository, TrustlySessionRepository>();
 
 // Configure payment API options
@@ -59,8 +56,6 @@ app.UseFileServer(new FileServerOptions
     EnableDefaultFiles = true
 });
 
-
-
 app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, HttpContext context, TrumoPnpService trumoApi) =>
 {
     try
@@ -83,14 +78,24 @@ app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<P
     }
 });
 
-app.MapPost("/trumo/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, CasinoApi hittikasinoApi, CarousellerApi carousellerApi, ITrustlySessionRepository sessionRepository, TrumoPnpService trumoApi) =>
+app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, ITrustlySessionRepository sessionRepository, TrumoPnpService trumoApi) =>
 {
     try
     {
-        var notification = JsonConvert.DeserializeObject<dynamic>(body.ToString()!)!;
+        context.Request.EnableBuffering();
+
+        string requestBody;
+        using (var reader = new StreamReader(context.Request.Body, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true))
+        {
+            requestBody = await reader.ReadToEndAsync();
+            context.Request.Body.Position = 0;
+        }
+
+
+        var notification = JsonConvert.DeserializeObject<dynamic>(requestBody)!;
         string notificationType = notification.type;
         string uuid = notification.UUID;
-        logger.LogDebug($"Trumo notification received: {notificationType}. Body: {body.ToString()}");
+        logger.LogDebug($"Trumo notification received: {notificationType}. Body: {requestBody}.");
 
         if (notificationType == "payerDetails")
         {
@@ -112,7 +117,7 @@ app.MapPost("/trumo/notifications", async ([FromBody] object body, HttpContext c
                 {
                     var casinoDomain = sessionData.RequestOrigin ?? "https://hittikasino.com";
                     string email = sessionData.Email;
-                    string password = trumoApi.DeserializeMessageId(merchantOrderId);
+                    string password = trumoApi.GetPasswordFromMessageId(merchantOrderId);
 
                     // Extract KYC details from notification
                     var kycDetails = data.payerDetails;
@@ -158,6 +163,19 @@ app.MapPost("/trumo/notifications", async ([FromBody] object body, HttpContext c
                 await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, (string)payerDetails.merchantPayerID, (string)payerDetails.trumoPayerID, (string)orderDetails.merchantOrderID, (string)orderDetails.trumoOrderID, "cancel");
             }
         }
+        else if (notificationType == "orderStatus" && notification.data.orderDetails.type == "deposit" && notification.data.orderDetails.status == "initiated")
+        {
+            var data = notification.data;
+            var payerDetails = data.payerDetails;
+            var orderDetails = data.orderDetails;
+
+            string merchantPayerId = payerDetails.merchantPayerID;
+            string trumoPayerId = payerDetails.trumoPayerID;
+            string merchantOrderId = orderDetails.merchantOrderID;
+            string trumoOrderId = orderDetails.trumoOrderID;
+            await trumoApi.RespondToOrderStatusNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId, trumoOrderId);
+            logger.LogDebug("Response to OrderStatus (deposit initiated) notification: processed");
+        }
         else
         {
             var client = new HttpClient();
@@ -198,7 +216,63 @@ app.MapGet("/success", async (string messageid, ILogger<Program> logger, ITrustl
         }
 
         var decoded = WebUtility.HtmlDecode(sessionData.SuccessLoginUrl);
-        context.Response.Redirect(decoded);
+
+        //context.Response.Redirect(decoded);
+
+        context.Response.ContentType = "text/html";
+        await context.Response.WriteAsync($@"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset='utf-8'>
+            <meta name='viewport' content='width=device-width, initial-scale=1'>
+            <title>Ohjataan...</title>
+            <style>
+                body {{ 
+                    font-family: -apple-system, sans-serif; 
+                    text-align: center; 
+                    padding-top: 50px; 
+                    background-color: #fff;
+                    color: #333;
+                }}
+                .spinner {{
+                    margin: 0 auto 20px;
+                    width: 40px;
+                    height: 40px;
+                    border: 4px solid #f3f3f3;
+                    border-top: 4px solid #007bff;
+                    border-radius: 50%;
+                    animation: s 1s linear infinite;
+                }}
+                @keyframes s {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+                .btn {{
+                    display: inline-block; 
+                    padding: 12px 30px; 
+                    background-color: #007bff;
+                    color: white; 
+                    text-decoration: none; 
+                    border-radius: 6px; 
+                    font-weight: bold;
+                    margin-top: 20px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class='spinner'></div>
+            <h3>Maksu onnistui</h3>
+            <a id='lnk' href='{decoded}' target='_top' class='btn'>Jatkaa</a>
+
+            <script>
+                var u = '{decoded}';
+                window.onload = function() {{
+                    try {{ window.parent.postMessage({{ type: 'PAYMENT_SUCCESS', url: u }}, '*'); }} catch(e){{}}
+                    try {{ if (window.top) window.top.location.href = u; }} catch(e){{}}
+                    setTimeout(function() {{ try {{ document.getElementById('lnk').click(); }} catch(e){{}} }}, 100);
+                }};
+            </script>
+        </body>
+        </html>");
+
     }
     catch (Exception ex)
     {
@@ -229,22 +303,7 @@ app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger
     }
 });
 
-app.MapPost("/trustly/login", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, TrustlyPnpService trustlyApi) =>
-{
-    try
-    {
-        logger.LogDebug(deposit.ToString());
-        var depositResponse = await trustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
-        await sessionRepository.CreateSessionAsync("Trustly", depositResponse.MessageId, deposit.Email, deposit.Currency, deposit.PartnerId);
-        return depositResponse;
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, null);
-        throw;
-    }
-});
-app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, CasinoApi hittikasinoApi, CarousellerApi carousellerApi, ITrustlySessionRepository sessionRepository, TrustlyPnpService trustlyApi) =>
+app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, ITrustlySessionRepository sessionRepository, TrustlyPnpService trustlyApi) =>
 {
     try
     {
@@ -283,7 +342,7 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                         email = sessionData.Email;
                         partnerId = sessionData.PartnerId;
                         // Get password from encrypted messageId
-                        password = trustlyApi.DeserializeMessageId(messageid);
+                        password = trustlyApi.GetPasswordFromMessageId(messageid);
                     }
                     else
                     {
@@ -350,7 +409,4 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
 
 app.Run();
 
-
-
 public record DepositParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string FailUrl, string PartnerId);
-public record LoginParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string FailUrl);

@@ -5,15 +5,15 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace TrustlyMiddlewareService;
+namespace TrustlyMiddlewareService.Services;
 
-public class CasinoApi
+public class CasinoService
 {
-    private readonly ILogger<CasinoApi> _logger;
+    private readonly ILogger<CasinoService> _logger;
     private const string _ident = "ptz";
     private const string _secret = "f7416c9ce56839cdad1db0e3daf37161";
 
-    public CasinoApi(ILogger<CasinoApi> logger)
+    public CasinoService(ILogger<CasinoService> logger)
     {
         _logger = logger;
     }
@@ -21,7 +21,7 @@ public class CasinoApi
     public async Task<CreateUserResponse> TryCreateUser(string casinoUrl, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId = null)
     {
         var checkUserResponse = await CheckUser(casinoUrl, firstName, lastName, email, password, dob, country, city, street, zip);
-        if (checkUserResponse.Exists == true || (checkUserResponse.Valid == true && checkUserResponse.Errors == 0))
+        if (checkUserResponse.Exists == true || checkUserResponse.Valid == true && checkUserResponse.Errors == 0)
         {
             return await CreateUser(casinoUrl, checkUserResponse.Exists == true, firstName, lastName, email, password, dob, country, city, street, zip, partnerId);
         }
@@ -54,7 +54,6 @@ public class CasinoApi
         string responseContent = await response.Content.ReadAsStringAsync();
         _logger.LogDebug($"Create user. Response code: {response.StatusCode}. Response content: {responseContent}");
         var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
-        //var successLoginUrl = WebUtility.HtmlDecode((string?)responseObj.autologin);
         string? correctUrl = null;
         if (!userExists)
         {

@@ -18,11 +18,10 @@ public abstract class PnpServiceBase
     protected abstract string PublicKeyFileName { get; }
     protected abstract HashAlgorithmName SignHashAlgorithm { get; }
     protected abstract HashAlgorithmName VerifyHashAlgorithm { get; }
-
-    // Common message ID serialization/deserialization methods
+    
     protected string GenerateMessageId(string password)
     {
-        byte[] rawData = GenerateEncodeBinary(password);
+        byte[] rawData = GenerateBinary(password);
         byte[] encryptedData = Encrypt(rawData);
         string messageId = Convert.ToBase64String(encryptedData)
             .Replace('+', '-')
@@ -31,7 +30,7 @@ public abstract class PnpServiceBase
         return messageId;
     }
 
-    public string DeserializeMessageId(string messageId)
+    public string GetPasswordFromMessageId(string messageId)
     {
         // Restore URL-safe Base64 to standard Base64
         string standardBase64 = messageId
@@ -51,7 +50,7 @@ public abstract class PnpServiceBase
         return password;
     }
 
-    protected byte[] GenerateEncodeBinary(string password)
+    protected byte[] GenerateBinary(string password)
     {
         byte[] passwordBytes = Encoding.UTF8.GetBytes(password);
         byte[] timestampBytes = BitConverter.GetBytes(DateTimeOffset.UtcNow.ToUnixTimeSeconds());

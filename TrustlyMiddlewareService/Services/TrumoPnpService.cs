@@ -35,42 +35,7 @@ public class TrumoPnpService : PnpServiceBase
         dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).data.orderDetails;
         return new DepositResponse((string)responseData.url, (string)responseData.trumoOrderID, messageId);
     }
-
-    public async Task<DepositResponse> Login(string email, string password, string country, string locale, string successUrl, string failUrl)
-    {
-        var messageId = GenerateMessageId(password);
-        var body = await GetLoginRequestBody(messageId, email, country, locale, successUrl, failUrl);
-        string plaintext = GetPlaintext("/v1/login", (string)body.UUID, ((JObject)body["data"]).ToObject<Dictionary<string, object>>()!);
-        string signed = Sign(plaintext);
-        body["signature"] = signed;
-        var responseContent = await Post("login", body);
-        dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).data.orderDetails;
-        return new DepositResponse((string)responseData.url, (string)responseData.trumoOrderID, messageId);
-    }
-
-    public async Task<string> Withdraw(string merchantPayerId, string trumoPayerId, string merchantOrderId, string amount, string currency, string trumoBankAccountId)
-    {
-        var body = GetWithdrawalRequestBody(merchantPayerId, trumoPayerId, merchantOrderId, amount, currency, trumoBankAccountId);
-        string plaintext = GetPlaintext("/v1/withdraw", (string)body.UUID, ((JObject)body["data"]).ToObject<Dictionary<string, object>>()!);
-        string signed = Sign(plaintext);
-        body["signature"] = signed;
-        var responseContent = await Post("withdraw", body);
-        dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).data.orderDetails;
-        return (string)responseData.trumoOrderID;
-    }
-
-    public async Task<string> Refund(string merchantPayerId, string trumoPayerId, string merchantOrderId, string trumoOrderId, string amount, string currency)
-    {
-        var body = GetRefundRequestBody(merchantPayerId, trumoPayerId, merchantOrderId, trumoOrderId, amount, currency);
-        string plaintext = GetPlaintext("/v1/refund", (string)body.UUID, ((JObject)body["data"]).ToObject<Dictionary<string, object>>()!);
-        string signed = Sign(plaintext);
-        body["signature"] = signed;
-        var responseContent = await Post("refund", body);
-        dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).data.orderDetails;
-        return (string)responseData.trumoOrderID;
-    }
-
-    // Notification Response: PayerDetails with "proceed" decision
+    
     public async Task RespondToPayerDetailsNotification(
         HttpResponse response,
         string uuid,
@@ -210,78 +175,7 @@ public class TrumoPnpService : PnpServiceBase
 }}";
         return JsonConvert.DeserializeObject<dynamic>(json)!;
     }
-
-    async Task<dynamic> GetLoginRequestBody(string messageId, string email, string country, string locale, string successUrl, string failUrl)
-    {
-        var uuid = Guid.NewGuid().ToString();
-        var notificationUrl = _config.NotificationUrl;
-        var json = @$"{{
-  ""signature"": """",
-  ""UUID"": ""{uuid}"",
-  ""data"": {{
-    ""notificationURL"": ""{notificationUrl}"",
-    ""successURL"": ""{successUrl}"",
-    ""failureURL"": ""{failUrl}"",
-    ""orderDetails"": {{
-      ""merchantOrderID"": ""{messageId}"",
-      ""country"": ""{country}"",
-      ""locale"": ""{locale}""
-    }}
-  }}
-}}";
-        return JsonConvert.DeserializeObject<dynamic>(json)!;
-    }
-
-    dynamic GetWithdrawalRequestBody(string merchantPayerId, string trumoPayerId, string merchantOrderId, string amount, string currency, string trumoBankAccountId)
-    {
-        var uuid = Guid.NewGuid().ToString();
-        var notificationUrl = _config.NotificationUrl;
-        var json = @$"{{
-  ""signature"": """",
-  ""UUID"": ""{uuid}"",
-  ""data"": {{
-    ""notificationURL"": ""{notificationUrl}"",
-    ""payerDetails"": {{
-      ""merchantPayerID"": ""{merchantPayerId}"",
-      ""trumoPayerID"": ""{trumoPayerId}""
-    }},
-    ""orderDetails"": {{
-      ""merchantOrderID"": ""{merchantOrderId}"",
-      ""amount"": ""{amount}"",
-      ""currency"": ""{currency}""
-    }},
-    ""bankAccountDetails"": {{
-      ""trumoBankAccountID"": ""{trumoBankAccountId}""
-    }}
-  }}
-}}";
-        return JsonConvert.DeserializeObject<dynamic>(json)!;
-    }
-
-    dynamic GetRefundRequestBody(string merchantPayerId, string trumoPayerId, string merchantOrderId, string trumoOrderId, string amount, string currency)
-    {
-        var uuid = Guid.NewGuid().ToString();
-        var notificationUrl = _config.NotificationUrl;
-        var json = @$"{{
-  ""signature"": """",
-  ""UUID"": ""{uuid}"",
-  ""data"": {{
-    ""notificationURL"": ""{notificationUrl}"",
-    ""payerDetails"": {{
-      ""merchantPayerID"": ""{merchantPayerId}"",
-      ""trumoPayerID"": ""{trumoPayerId}""
-    }},
-    ""orderDetails"": {{
-      ""merchantOrderID"": ""{merchantOrderId}"",
-      ""trumoOrderID"": ""{trumoOrderId}"",
-      ""amount"": ""{amount}"",
-      ""currency"": ""{currency}""
-    }}
-  }}
-}}";
-        return JsonConvert.DeserializeObject<dynamic>(json)!;
-    }
-
+    
     string GetPlaintext(string urlPath, string uuid, Dictionary<string, object> data)
     {
         var plaintextBuilder = new StringBuilder();
@@ -335,8 +229,6 @@ public class TrumoPnpService : PnpServiceBase
         var data = new StringContent(json, Encoding.UTF8, "application/json");
         var response = await client.PostAsync($"{_config.ApiBaseUrl}/{method}", data);
         string responseContent = await response.Content.ReadAsStringAsync();
-        // Note: As of Trumo API v1.4, signature is removed from API responses
-        // So we don't verify the signature anymore
         return responseContent;
     }
 }
