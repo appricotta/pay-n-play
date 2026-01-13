@@ -1,7 +1,7 @@
 using MongoDB.Driver;
-using TrustlyMiddlewareService.Models;
+using PnPMiddleware.Models;
 
-namespace TrustlyMiddlewareService.Repositories;
+namespace PnPMiddleware.Repositories;
 
 public interface ITrustlySessionRepository
 {

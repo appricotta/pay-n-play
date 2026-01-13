@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 
-namespace TrustlyMiddlewareService;
+namespace PnPMiddleware;
 
 public class EmbeddedResource
 {

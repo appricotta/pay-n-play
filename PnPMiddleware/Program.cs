@@ -4,9 +4,9 @@ using Newtonsoft.Json;
 using Serilog;
 using System.Net;
 using System.Text;
-using TrustlyMiddlewareService.Configuration;
-using TrustlyMiddlewareService.Repositories;
-using TrustlyMiddlewareService.Services;
+using PnPMiddleware.Configuration;
+using PnPMiddleware.Repositories;
+using PnPMiddleware.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>

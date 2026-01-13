@@ -5,7 +5,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace TrustlyMiddlewareService.Services;
+namespace PnPMiddleware.Services;
 
 public class CasinoService
 {
@@ -49,7 +49,7 @@ public class CasinoService
         var client = CreateHttpClient();
         var requestMessage = new HttpRequestMessage(HttpMethod.Get, registrationUrl);
         requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Basic", authStr);
-        requestMessage.Headers.Add("User-Agent", "TrustlyMiddlewareService");
+        requestMessage.Headers.Add("User-Agent", "PnPMiddleware");
         var response = await client.SendAsync(requestMessage);
         string responseContent = await response.Content.ReadAsStringAsync();
         _logger.LogDebug($"Create user. Response code: {response.StatusCode}. Response content: {responseContent}");

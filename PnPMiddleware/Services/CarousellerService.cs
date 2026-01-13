@@ -2,7 +2,7 @@
 using System.Text;
 using Newtonsoft.Json;
 
-namespace TrustlyMiddlewareService.Services
+namespace PnPMiddleware.Services
 {
     public class CarousellerService
     {

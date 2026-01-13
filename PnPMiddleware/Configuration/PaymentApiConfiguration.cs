@@ -1,4 +1,4 @@
-namespace TrustlyMiddlewareService.Configuration;
+namespace PnPMiddleware.Configuration;
 
 public class PaymentApiConfiguration
 {

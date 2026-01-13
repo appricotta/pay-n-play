@@ -1,6 +1,6 @@
 using MongoDB.Bson.Serialization.Attributes;
 
-namespace TrustlyMiddlewareService.Models;
+namespace PnPMiddleware.Models;
 
 public class DepositSessionData
 {

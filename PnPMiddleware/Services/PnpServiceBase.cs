@@ -1,8 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
-using TrustlyMiddlewareService.Configuration;
+using PnPMiddleware.Configuration;
 
-namespace TrustlyMiddlewareService.Services;
+namespace PnPMiddleware.Services;
 
 public abstract class PnpServiceBase
 {

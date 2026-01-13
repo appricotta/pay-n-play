@@ -4,10 +4,10 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using TrustlyMiddlewareService.Configuration;
-using TrustlyMiddlewareService.Models;
+using PnPMiddleware.Configuration;
+using PnPMiddleware.Models;
 
-namespace TrustlyMiddlewareService.Services;
+namespace PnPMiddleware.Services;
 
 public class TrumoPnpService : PnpServiceBase
 {
