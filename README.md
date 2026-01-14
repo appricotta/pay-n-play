@@ -2,12 +2,12 @@
 
 ## Nodes
 
-| Node | Team | Role | Protocol | Signature |
-|------|------|------|----------|-----------|
-| **PnP Middleware** | pnp middleware service | Payment Orchestrator | REST API | AES-256 (MessageId) |
-| **Trumo** | Trumo | Payment Provider | REST + Webhooks | RSA-SHA256 |
-| **HittiKasino** | hittikasino | Casino Operator | REST API | SHA1 |
-| **Carouseller** | carouseller | User Authorization | REST API | SHA1 |
+| Node | Team | Role |
+|------|------|------|
+| **PnP Middleware** | pnp middleware service | Payment Orchestrator |
+| **Trumo** | trumo | Payment Provider |
+| **HittiKasino** | hittikasino | Casino Operator |
+| **Carouseller** | carouseller | User Authorization |
 
 ---
 
