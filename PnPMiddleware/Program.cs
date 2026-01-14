@@ -7,6 +7,8 @@ using System.Text;
 using PnPMiddleware.Configuration;
 using PnPMiddleware.Repositories;
 using PnPMiddleware.Services;
+using PnPMiddleware.Models;
+using MongoDB.Bson;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
@@ -24,7 +26,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddSerilog(lc => lc.ReadFrom.Configuration(builder.Configuration));
 builder.Services.AddSingleton<CasinoService>();
 builder.Services.AddSingleton<CarousellerService>();
-builder.Services.AddSingleton<ITrustlySessionRepository, TrustlySessionRepository>();
+builder.Services.AddSingleton<TrustlySessionRepository, TrustlySessionRepository>();
+builder.Services.AddSingleton<LogRepository, LogRepository>();
 
 // Configure payment API options
 builder.Services.Configure<PaymentApiConfiguration>(builder.Configuration.GetSection("PaymentApi"));
@@ -53,7 +56,7 @@ app.UseFileServer(new FileServerOptions
     EnableDefaultFiles = true
 });
 
-app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, HttpContext context, TrumoPnpService trumoApi) =>
+app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, TrustlySessionRepository sessionRepository, HttpContext context, TrumoPnpService trumoApi) =>
 {
     try
     {
@@ -77,7 +80,7 @@ app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<P
     }
 });
 
-app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, ITrustlySessionRepository sessionRepository, TrumoPnpService trumoApi) =>
+app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, TrustlySessionRepository sessionRepository, TrumoPnpService trumoApi) =>
 {
     try
     {
@@ -130,10 +133,10 @@ app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program>
                     string? street = kycDetails.street;
                     string? zipcode = kycDetails.zipcode;
 
-                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, sessionData.PartnerId);
+                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, sessionData.PartnerId, merchantOrderId);
 
                     if (createUserResponse.Exists && createUserResponse.UserId != null
-                        && await carousellerApi.KeyObtain(new KeyValuePair<string, string>("trumo_uuid", $"{merchantOrderId}:{trumoOrderId}"), sessionData.Currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode))
+                        && await carousellerApi.KeyObtain(new KeyValuePair<string, string>("trumo_uuid", $"{merchantOrderId}:{trumoOrderId}"), sessionData.Currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode, merchantOrderId))
                     {
                         logger.LogInformation("PayerDetails notification approved for merchantOrderId {MerchantOrderId}", merchantOrderId);
                         if (createUserResponse.SuccessLoginUrl != null)
@@ -195,7 +198,7 @@ app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program>
     }
 });
 
-app.MapGet("/success", async (string messageid, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, HttpContext context) =>
+app.MapGet("/success", async (string messageid, ILogger<Program> logger, TrustlySessionRepository sessionRepository, HttpContext context) =>
 {
     try
     {
@@ -284,7 +287,7 @@ app.MapGet("/success", async (string messageid, ILogger<Program> logger, ITrustl
     }
 });
 
-app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, ITrustlySessionRepository sessionRepository, HttpContext context, TrustlyPnpService trustlyApi) =>
+app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger<Program> logger, TrustlySessionRepository sessionRepository, HttpContext context, TrustlyPnpService trustlyApi) =>
 {
     try
     {
@@ -307,7 +310,7 @@ app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger
     }
 });
 
-app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, ITrustlySessionRepository sessionRepository, TrustlyPnpService trustlyApi) =>
+app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext context, ILogger<Program> logger, CasinoService hittikasinoApi, CarousellerService carousellerApi, TrustlySessionRepository sessionRepository, TrustlyPnpService trustlyApi) =>
 {
     try
     {
@@ -357,9 +360,9 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
 
                     var casinoDomain = sessionData.RequestOrigin ?? "https://hittikasino.com";
                     //email = "test19@gmail.com";
-                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, partnerId);
+                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, partnerId, messageid);
                     if (createUserResponse.Exists && createUserResponse.UserId != null
-                        && await carousellerApi.KeyObtain(new KeyValuePair<string, string>("trustly_uuid", orderid), currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode))
+                        && await carousellerApi.KeyObtain(new KeyValuePair<string, string>("trustly_uuid", orderid), currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode, messageid))
                     {
                         logger.LogInformation("KYC notification approved for messageId {MessageId}", messageid);
                         if (createUserResponse.SuccessLoginUrl != null)
@@ -417,6 +420,98 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
     }
 });
 
+// Deposit Trace API endpoint
+app.MapGet("/api/deposit/trace", async (
+    string? messageId,
+    ILogger<Program> logger,
+    LogRepository logRepository,
+    TrustlySessionRepository sessionRepository) =>
+{
+    try
+    {
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return Results.BadRequest(new { error = "messageId parameter is required" });
+        }
+
+        logger.LogInformation("Deposit trace requested for MessageId {MessageId}", messageId);
+
+        // Get logs from MongoDB
+        var logs = await logRepository.GetLogsByMessageIdAsync(messageId);
+
+        if (!logs.Any())
+        {
+            logger.LogWarning("No logs found for MessageId {MessageId}", messageId);
+            return Results.NotFound(new { error = "No logs found for the provided messageId" });
+        }
+
+        // Get session data if available
+        var sessionData = await sessionRepository.GetSessionAsync(messageId);
+
+        // Build response
+        var response = new DepositTraceResponse
+        {
+            MessageId = messageId,
+            PaymentProvider = sessionData?.PaymentProvider,
+            Email = sessionData?.Email,
+            Currency = sessionData?.Currency,
+            SessionCreatedAt = sessionData?.CreatedAt,
+            Timeline = logs.Select(log => new TraceEvent
+            {
+                Timestamp = log.UtcTimeStamp,
+                Level = log.Level,
+                Message = log.RenderedMessage,
+                Details = ExtractProperties(log.Properties),
+                Exception = ExtractException(log.Exception)
+            }).ToList()
+        };
+
+        logger.LogInformation("Deposit trace returned {EventCount} events for MessageId {MessageId}",
+            response.Timeline.Count, messageId);
+
+        return Results.Ok(response);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error retrieving deposit trace for MessageId {MessageId}", messageId);
+        return Results.Problem("An error occurred while retrieving the deposit trace");
+    }
+})
+.WithName("GetDepositTrace")
+.WithOpenApi();
+
 app.Run();
+
+static Dictionary<string, object> ExtractProperties(BsonDocument properties)
+{
+    var result = new Dictionary<string, object>();
+
+    foreach (var element in properties.Elements)
+    {
+        // Skip system properties
+        if (element.Name.StartsWith("_") || element.Name == "SourceContext")
+            continue;
+
+        // Convert BsonValue to appropriate C# type
+        result[element.Name] = BsonTypeMapper.MapToDotNetValue(element.Value);
+    }
+
+    return result;
+}
+
+static string? ExtractException(BsonDocument? exception)
+{
+    if (exception == null)
+        return null;
+
+    // Serilog stores exception as a document with Message, StackTraceString, etc.
+    var message = exception.Contains("Message") ? exception["Message"].AsString : null;
+    var stackTrace = exception.Contains("StackTraceString") ? exception["StackTraceString"].AsString : null;
+
+    if (message != null && stackTrace != null)
+        return $"{message}\n{stackTrace}";
+
+    return message ?? exception.ToString();
+}
 
 public record DepositParams(string Email, double Amount, string Password, string Currency, string Country, string Locale, string FailUrl, string PartnerId);

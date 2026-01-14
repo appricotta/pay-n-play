@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deposit Trace Viewer</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .search-section {
+            margin-bottom: 30px;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        #messageIdInput {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #messageIdInput:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        #searchBtn {
+            padding: 12px 30px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        #searchBtn:hover {
+            background-color: #0056b3;
+        }
+
+        #searchBtn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .session-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 30px;
+            display: none;
+        }
+
+        .session-info.visible {
+            display: block;
+        }
+
+        .session-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .timeline {
+            position: relative;
+            padding-left: 30px;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: linear-gradient(to bottom, #007bff, #00d4ff);
+        }
+
+        .timeline-event {
+            position: relative;
+            margin-bottom: 25px;
+            padding: 15px;
+            background-color: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .timeline-event::before {
+            content: '';
+            position: absolute;
+            left: -26px;
+            top: 20px;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background-color: white;
+            border: 3px solid #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+
+        .event-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .event-type {
+            font-weight: 600;
+            color: #007bff;
+            font-size: 14px;
+        }
+
+        .event-time {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .event-level {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+
+        .level-Information {
+            background-color: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .level-Debug {
+            background-color: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        .level-Warning {
+            background-color: #fff3e0;
+            color: #f57c00;
+        }
+
+        .level-Error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .event-message {
+            color: #333;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        .event-details {
+            margin-top: 10px;
+        }
+
+        .details-toggle {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #495057;
+            display: inline-block;
+        }
+
+        .details-toggle:hover {
+            background-color: #e9ecef;
+        }
+
+        .details-content {
+            display: none;
+            margin-top: 10px;
+            padding: 12px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .details-content.visible {
+            display: block;
+        }
+
+        .exception {
+            margin-top: 10px;
+            padding: 12px;
+            background-color: #fff5f5;
+            border-left: 4px solid #c62828;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #c62828;
+            white-space: pre-wrap;
+        }
+
+        .error-message {
+            padding: 15px;
+            background-color: #ffebee;
+            border-left: 4px solid #c62828;
+            border-radius: 4px;
+            color: #c62828;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .error-message.visible {
+            display: block;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            display: none;
+        }
+
+        .loading.visible {
+            display: block;
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .no-results {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            display: none;
+        }
+
+        .no-results.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Deposit Trace Viewer</h1>
+        <p class="subtitle">Search for deposit transaction traces by MessageId</p>
+
+        <div class="search-section">
+            <div class="search-form">
+                <input
+                    type="text"
+                    id="messageIdInput"
+                    placeholder="Enter MessageId (e.g., abc123def456...)"
+                    autocomplete="off"
+                />
+                <button id="searchBtn">Search</button>
+            </div>
+        </div>
+
+        <div id="errorMessage" class="error-message"></div>
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Loading deposit trace...</p>
+        </div>
+
+        <div id="sessionInfo" class="session-info"></div>
+
+        <div id="noResults" class="no-results">
+            <p>No results found. Try searching with a different MessageId.</p>
+        </div>
+
+        <div id="timeline" class="timeline"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = window.location.origin;
+
+        const messageIdInput = document.getElementById('messageIdInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const errorMessage = document.getElementById('errorMessage');
+        const loading = document.getElementById('loading');
+        const sessionInfo = document.getElementById('sessionInfo');
+        const noResults = document.getElementById('noResults');
+        const timeline = document.getElementById('timeline');
+
+        // Search on button click
+        searchBtn.addEventListener('click', performSearch);
+
+        // Search on Enter key
+        messageIdInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        async function performSearch() {
+            const messageId = messageIdInput.value.trim();
+
+            if (!messageId) {
+                showError('Please enter a MessageId');
+                return;
+            }
+
+            // Reset UI
+            hideError();
+            hideNoResults();
+            sessionInfo.classList.remove('visible');
+            timeline.innerHTML = '';
+
+            // Show loading
+            showLoading();
+            searchBtn.disabled = true;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/deposit/trace?messageId=${encodeURIComponent(messageId)}`);
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        hideLoading();
+                        showNoResults();
+                        return;
+                    }
+
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayTrace(data);
+
+            } catch (error) {
+                console.error('Error fetching trace:', error);
+                showError(`Failed to load trace: ${error.message}`);
+            } finally {
+                hideLoading();
+                searchBtn.disabled = false;
+            }
+        }
+
+        function displayTrace(data) {
+            // Display session info
+            if (data.paymentProvider || data.email || data.currency) {
+                sessionInfo.innerHTML = `
+                    <div class="session-info-grid">
+                        <div class="info-item">
+                            <span class="info-label">MessageId</span>
+                            <span class="info-value">${escapeHtml(data.messageId)}</span>
+                        </div>
+                        ${data.paymentProvider ? `
+                        <div class="info-item">
+                            <span class="info-label">Payment Provider</span>
+                            <span class="info-value">${escapeHtml(data.paymentProvider)}</span>
+                        </div>
+                        ` : ''}
+                        ${data.email ? `
+                        <div class="info-item">
+                            <span class="info-label">Email</span>
+                            <span class="info-value">${escapeHtml(data.email)}</span>
+                        </div>
+                        ` : ''}
+                        ${data.currency ? `
+                        <div class="info-item">
+                            <span class="info-label">Currency</span>
+                            <span class="info-value">${escapeHtml(data.currency)}</span>
+                        </div>
+                        ` : ''}
+                        ${data.sessionCreatedAt ? `
+                        <div class="info-item">
+                            <span class="info-label">Session Created</span>
+                            <span class="info-value">${formatDateTime(data.sessionCreatedAt)}</span>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+                sessionInfo.classList.add('visible');
+            }
+
+            // Display timeline
+            if (data.timeline && data.timeline.length > 0) {
+                data.timeline.forEach((event, index) => {
+                    const eventHtml = createEventHtml(event, index);
+                    timeline.innerHTML += eventHtml;
+                });
+
+                // Add click handlers for detail toggles
+                document.querySelectorAll('.details-toggle').forEach(toggle => {
+                    toggle.addEventListener('click', function() {
+                        const eventId = this.dataset.eventId;
+                        const detailsContent = document.getElementById(`details-${eventId}`);
+                        detailsContent.classList.toggle('visible');
+                        this.textContent = detailsContent.classList.contains('visible') ? 'Hide Details' : 'Show Details';
+                    });
+                });
+            } else {
+                showNoResults();
+            }
+        }
+
+        function createEventHtml(event, index) {
+            const hasDetails = Object.keys(event.details).length > 0;
+            const eventTypeDisplay = event.eventType || 'Event';
+
+            return `
+                <div class="timeline-event">
+                    <div class="event-header">
+                        <div>
+                            <span class="event-type">${escapeHtml(eventTypeDisplay)}</span>
+                            <span class="event-level level-${escapeHtml(event.level)}">${escapeHtml(event.level)}</span>
+                        </div>
+                        <span class="event-time">${formatDateTime(event.timestamp)}</span>
+                    </div>
+                    <div class="event-message">${escapeHtml(event.message)}</div>
+                    ${hasDetails ? `
+                        <div class="event-details">
+                            <span class="details-toggle" data-event-id="${index}">Show Details</span>
+                            <div class="details-content" id="details-${index}">
+                                <pre>${escapeHtml(JSON.stringify(event.details, null, 2))}</pre>
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${event.exception ? `
+                        <div class="exception">${escapeHtml(event.exception)}</div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function formatDateTime(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                fractionalSecondDigits: 3
+            });
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = text.toString();
+            return div.innerHTML;
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.classList.add('visible');
+        }
+
+        function hideError() {
+            errorMessage.classList.remove('visible');
+        }
+
+        function showLoading() {
+            loading.classList.add('visible');
+        }
+
+        function hideLoading() {
+            loading.classList.remove('visible');
+        }
+
+        function showNoResults() {
+            noResults.classList.add('visible');
+        }
+
+        function hideNoResults() {
+            noResults.classList.remove('visible');
+        }
+
+        // Check for messageId in URL query parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const messageIdParam = urlParams.get('messageId');
+        if (messageIdParam) {
+            messageIdInput.value = messageIdParam;
+            performSearch();
+        }
+    </script>
+</body>
+</html>

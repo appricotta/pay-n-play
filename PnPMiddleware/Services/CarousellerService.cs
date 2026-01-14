@@ -13,24 +13,29 @@ namespace PnPMiddleware.Services
             _logger = logger;
         }
 
-        public async Task<bool> KeyObtain(KeyValuePair<string, string> transactionParam, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip)
+        public async Task<bool> KeyObtain(KeyValuePair<string, string> transactionParam, string currency, string firstName, string lastName, string email, string siteLogin, DateOnly? dob, string? country, string? city, string? street, string? zip, string messageId)
         {
+            _logger.LogInformation("Carouseller KeyObtain request for MessageId {MessageId}, SiteLogin {SiteLogin}, Currency {Currency}", messageId, siteLogin, currency);
+
             var paramsDic = GetParams(transactionParam, currency, firstName, lastName, email, siteLogin, dob, country, city, street, zip);
             var plain = GetPlaintext(paramsDic);
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("signature", hash);
             var url = BuildQueryString("https://a.papaya.ninja/api/authlink/obtain/", paramsDic);
-            _logger.LogInformation("Sending KeyObtain request for siteLogin {SiteLogin}, currency {Currency}", siteLogin, currency);
-            _logger.LogDebug("KeyObtain request URL: {Url}", url);
+            _logger.LogDebug("Carouseller KeyObtain request URL for MessageId {MessageId}: {Url}", messageId, url);
 
             var client = new HttpClient();
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, url);
             var response = await client.SendAsync(requestMessage);
+
+            _logger.LogInformation("Carouseller KeyObtain response for MessageId {MessageId}, StatusCode {StatusCode}", messageId, (int)response.StatusCode);
+
             string responseContent = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Carouseller KeyObtain response for MessageId {MessageId}: {ResponseContent}", messageId, responseContent);
+
             var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent)!;
             bool success = responseObj.success == true;
-            _logger.LogInformation("KeyObtain response received with success {Success}", success);
-            _logger.LogDebug("KeyObtain response content: {ResponseContent}", responseContent);
+            _logger.LogInformation("Carouseller KeyObtain completed for MessageId {MessageId}, Success {Success}", messageId, success);
 
             return success;
         }

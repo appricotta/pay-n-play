@@ -3,15 +3,7 @@ using PnPMiddleware.Models;
 
 namespace PnPMiddleware.Repositories;
 
-public interface ITrustlySessionRepository
-{
-    Task<string> CreateSessionAsync(string paymentProvider, string messageId, string email, string currency, string? partnerId = null, string? requestOrigin = null);
-    Task<DepositSessionData?> GetSessionAsync(string messageId);
-    Task DeleteSessionAsync(string messageId);
-    Task UpdateSuccessLoginUrlAsync(string messageId, string successLoginUrl);
-}
-
-public class TrustlySessionRepository : ITrustlySessionRepository
+public class TrustlySessionRepository
 {
     private readonly IMongoCollection<DepositSessionData> _collection;
     

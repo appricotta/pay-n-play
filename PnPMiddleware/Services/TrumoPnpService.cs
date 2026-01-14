@@ -12,11 +12,13 @@ namespace PnPMiddleware.Services;
 public class TrumoPnpService : PnpServiceBase
 {
     private readonly TrumoApiConfiguration _config;
+    private readonly ILogger<TrumoPnpService> _logger;
 
-    public TrumoPnpService(IOptions<PaymentApiConfiguration> baseConfig, IOptions<TrumoApiConfiguration> trumoConfig)
+    public TrumoPnpService(IOptions<PaymentApiConfiguration> baseConfig, IOptions<TrumoApiConfiguration> trumoConfig, ILogger<TrumoPnpService> logger)
         : base(baseConfig.Value)
     {
         _config = trumoConfig.Value;
+        _logger = logger;
     }
 
     protected override string PrivateKeyFileName => _config.PrivateKeyFileName;
@@ -33,6 +35,8 @@ public class TrumoPnpService : PnpServiceBase
         body["signature"] = signed;
         var responseContent = await Post("deposit", body);
         dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).data.orderDetails;
+        _logger.LogInformation("Trumo deposit API response received for MessageId {MessageId}, TrumoOrderID {TrumoOrderID}", messageId, (string)responseData.trumoOrderID);
+
         return new DepositResponse((string)responseData.url, (string)responseData.trumoOrderID, messageId);
     }
     

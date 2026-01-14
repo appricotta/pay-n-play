@@ -12,11 +12,13 @@ namespace PnPMiddleware.Services;
 public class TrustlyPnpService : PnpServiceBase
 {
     private readonly TrustlyApiConfiguration _config;
+    private readonly ILogger<TrustlyPnpService> _logger;
 
-    public TrustlyPnpService(IOptions<PaymentApiConfiguration> baseConfig, IOptions<TrustlyApiConfiguration> trustlyConfig)
+    public TrustlyPnpService(IOptions<PaymentApiConfiguration> baseConfig, IOptions<TrustlyApiConfiguration> trustlyConfig, ILogger<TrustlyPnpService> logger)
         : base(baseConfig.Value)
     {
         _config = trustlyConfig.Value;
+        _logger = logger;
     }
 
     protected override string PrivateKeyFileName => _config.PrivateKeyFileName;
@@ -33,6 +35,8 @@ public class TrustlyPnpService : PnpServiceBase
         body["params"].Signature = signed;
         var responseContent = await Post(body);
         dynamic responseData = ((dynamic)JsonConvert.DeserializeObject(responseContent)).result.data;
+        _logger.LogInformation("Trustly deposit API response received for MessageId {MessageId}, OrderID {OrderID}", messageId, (string)responseData.orderid);
+
         return new DepositResponse((string)responseData.url, (string)responseData.orderid, messageId);
     }
 

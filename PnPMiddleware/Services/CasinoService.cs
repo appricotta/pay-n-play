@@ -18,34 +18,33 @@ public class CasinoService
         _logger = logger;
     }
 
-    public async Task<CreateUserResponse> TryCreateUser(string casinoUrl, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId = null)
+    public async Task<CreateUserResponse> TryCreateUser(string casinoUrl, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId, string messageId)
     {
-        var checkUserResponse = await CheckUser(casinoUrl, firstName, lastName, email, password, dob, country, city, street, zip);
+        var checkUserResponse = await CheckUser(casinoUrl, firstName, lastName, email, password, dob, country, city, street, zip, messageId);
         if (checkUserResponse.Exists == true || checkUserResponse.Valid == true && checkUserResponse.Errors == 0)
         {
-            return await CreateUser(casinoUrl, checkUserResponse.Exists == true, firstName, lastName, email, password, dob, country, city, street, zip, partnerId);
+            return await CreateUser(casinoUrl, checkUserResponse.Exists == true, firstName, lastName, email, password, dob, country, city, street, zip, partnerId, messageId);
         }
         return new CreateUserResponse(false, null, null);
-
     }
 
-    private async Task<CreateUserResponse> CreateUser(string casinoUrl, bool userExists, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId = null)
+    private async Task<CreateUserResponse> CreateUser(string casinoUrl, bool userExists, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string? partnerId, string messageId)
     {
         var paramsDic = GetParams(firstName, lastName, email, password, dob, country, city, street, zip);
         paramsDic.Add("user_id","on");
         paramsDic.Add("av_check", "true");
-        
+
         // Add partner parameter if provided
         if (!string.IsNullOrEmpty(partnerId))
         {
             paramsDic.Add("partner", partnerId);
         }
-        
+
         var plain = string.Concat(paramsDic["email"], _secret);
         var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
         var registrationUrl = QueryHelpers.AddQueryString(string.Concat(casinoUrl , "/a/pr/", _ident, "/", hash, "/"), paramsDic);
-        _logger.LogInformation("Sending create user request to casino domain {CasinoDomain}", casinoUrl);
-        _logger.LogDebug("Create user request URL: {RegistrationUrl}", registrationUrl);
+        _logger.LogInformation("Casino create user request for MessageId {MessageId}, CasinoDomain {CasinoDomain}", messageId, casinoUrl);
+        _logger.LogDebug("Casino create user request URL for MessageId {MessageId}: {RegistrationUrl}", messageId, registrationUrl);
 
         var authStr = Convert.ToBase64String(Encoding.UTF8.GetBytes($"123:123"));
         var client = CreateHttpClient();
@@ -54,8 +53,8 @@ public class CasinoService
         requestMessage.Headers.Add("User-Agent", "PnPMiddleware");
         var response = await client.SendAsync(requestMessage);
         string responseContent = await response.Content.ReadAsStringAsync();
-        _logger.LogInformation("Create user response received with status {StatusCode}", (int)response.StatusCode);
-        _logger.LogDebug("Create user response content: {ResponseContent}", responseContent);
+        _logger.LogInformation("Casino create user response for MessageId {MessageId}, StatusCode {StatusCode}", messageId, (int)response.StatusCode);
+        _logger.LogDebug("Casino create user response for MessageId {MessageId}: {ResponseContent}", messageId, responseContent);
         var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
         string? correctUrl = null;
         if (!userExists)
@@ -95,7 +94,7 @@ public class CasinoService
         return client;
     }
 
-    private async Task<CheckUserResponse> CheckUser(string casinoUrl, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip)
+    private async Task<CheckUserResponse> CheckUser(string casinoUrl, string firstName, string lastName, string email, string password, DateOnly? dob, string? country, string? city, string? street, string? zip, string messageId)
     {
         try
         {
@@ -104,8 +103,8 @@ public class CasinoService
             var hash = Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(plain))).ToLower();
             paramsDic.Add("sign", hash);
             string url = QueryHelpers.AddQueryString(string.Concat(casinoUrl, "/registration/api/"), paramsDic);
-            _logger.LogInformation("Sending check user request to casino domain {CasinoDomain}", casinoUrl);
-            _logger.LogDebug("Check user request URL: {Url}", url);
+            _logger.LogInformation("Casino check user request for MessageId {MessageId}, CasinoDomain {CasinoDomain}", messageId, casinoUrl);
+            _logger.LogDebug("Casino check user request URL for MessageId {MessageId}: {Url}", messageId, url);
 
             var client = CreateHttpClient();
             var authStr = Convert.ToBase64String(Encoding.UTF8.GetBytes($"123:123"));
@@ -114,14 +113,14 @@ public class CasinoService
             var response = await client.SendAsync(requestMessage);
             string responseContent = await response.Content.ReadAsStringAsync();
             var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent);
-            _logger.LogInformation("Check user response received with exists {UserExists}, valid {Valid}",
-                (bool?)responseObj.exists, (bool?)responseObj.valid);
-            _logger.LogDebug("Check user response content: {ResponseContent}", responseContent);
+            _logger.LogInformation("Casino check user response for MessageId {MessageId}, UserExists {UserExists}, Valid {Valid}",
+                messageId, (bool?)responseObj.exists, (bool?)responseObj.valid);
+            _logger.LogDebug("Casino check user response for MessageId {MessageId}: {ResponseContent}", messageId, responseContent);
 
             return new CheckUserResponse((bool?)responseObj.exists, (bool?)responseObj.valid, (int)responseObj.error);
         } catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to check user existence with casino API");
+            _logger.LogError(ex, "Failed to check user existence with casino API for MessageId {MessageId}", messageId);
             return new CheckUserResponse(false, false, 1);
         }
     }
