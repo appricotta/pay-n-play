@@ -4,10 +4,10 @@
 
 | Node | Team | Role |
 |------|------|------|
-| **PnP Middleware** | pnp middleware service | Payment Orchestrator |
+| **PnP Middleware** | pnp middleware service | Orchestrator |
 | **Trumo** | trumo | Payment Provider |
 | **HittiKasino** | hittikasino | Casino Operator |
-| **Carouseller** | carouseller | User Authorization |
+| **Carouseller** | carouseller | Payment Operator |
 
 ---
 
