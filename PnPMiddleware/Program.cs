@@ -60,9 +60,6 @@ app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<P
 {
     try
     {
-        logger.LogInformation("Trumo deposit request received for currency {Currency} with amount {Amount}", deposit.Currency, deposit.Amount);
-        logger.LogDebug("Trumo deposit details: {@Deposit}", deposit);
-
         var origin = context.Request.Headers.Origin.ToString();
         // If Origin header is not available, try Referer
         if (string.IsNullOrEmpty(origin))
@@ -70,6 +67,8 @@ app.MapPost("/trumo/deposit", async ([FromBody] DepositParams deposit, ILogger<P
             origin = context.Request.Headers.Referer.ToString();
         }
         var depositResponse = await trumoApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
+        logger.LogInformation("Trumo deposit request processed for MessageId {MessageId}, Currency {Currency}, Amount {Amount}", depositResponse.MessageId, deposit.Currency, deposit.Amount);
+        logger.LogDebug("Trumo deposit details for MessageId {MessageId}: {@Deposit}", depositResponse.MessageId, deposit);
         await sessionRepository.CreateSessionAsync("Trumo", depositResponse.MessageId, deposit.Email, deposit.Currency, deposit.PartnerId, origin);
         return depositResponse;
     }
@@ -93,34 +92,35 @@ app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program>
             context.Request.Body.Position = 0;
         }
 
-
         var notification = JsonConvert.DeserializeObject<dynamic>(requestBody)!;
         string notificationType = notification.type;
         string uuid = notification.UUID;
-        logger.LogInformation("Trumo notification received with type {NotificationType}", notificationType);
-        logger.LogDebug("Trumo notification body: {RequestBody}", requestBody);
+
+        var data = notification.data;
+        var orderDetails = data?.orderDetails;
+        string? merchantOrderId = orderDetails?.merchantOrderID;
+        logger.LogInformation("Trumo PayerDetails notification received for MessageId {MessageId}", merchantOrderId);
+        logger.LogDebug("Trumo notification body for MessageId {MessageId}: {RequestBody}", merchantOrderId, requestBody);
 
         if (notificationType == "payerDetails")
         {
             try
             {
-                var data = notification.data;
-                var payerDetails = data.payerDetails;
-                var orderDetails = data.orderDetails;
+                var payerDetails = data!.payerDetails;
 
                 string merchantPayerId = payerDetails.merchantPayerID;
                 string trumoPayerId = payerDetails.trumoPayerID;
-                string merchantOrderId = orderDetails.merchantOrderID;
-                string trumoOrderId = orderDetails.trumoOrderID;
+                string trumoOrderId = orderDetails!.trumoOrderID;
 
+                
                 // Get session data from MongoDB
-                var sessionData = await sessionRepository.GetSessionAsync(merchantOrderId);
+                var sessionData = await sessionRepository.GetSessionAsync(merchantOrderId!);
 
                 if (sessionData != null)
                 {
                     var casinoDomain = sessionData.RequestOrigin ?? "https://hittikasino.com";
                     string email = sessionData.Email;
-                    string password = trumoApi.GetPasswordFromMessageId(merchantOrderId);
+                    string password = trumoApi.GetPasswordFromMessageId(merchantOrderId!);
 
                     // Extract KYC details from notification
                     var kycDetails = data.payerDetails;
@@ -133,12 +133,12 @@ app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program>
                     string? street = kycDetails.street;
                     string? zipcode = kycDetails.zipcode;
 
-                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, sessionData.PartnerId, merchantOrderId);
+                    var createUserResponse = await hittikasinoApi.TryCreateUser(casinoDomain, firstname, lastname, email, password, dob, country, city, street, zipcode, sessionData.PartnerId, merchantOrderId!);
 
                     if (createUserResponse.Exists && createUserResponse.UserId != null
                         && await carousellerApi.KeyObtain(new KeyValuePair<string, string>("trumo_uuid", $"{merchantOrderId}:{trumoOrderId}"), sessionData.Currency, firstname, lastname, email, createUserResponse.UserId, dob, country, city, street, zipcode, merchantOrderId))
                     {
-                        logger.LogInformation("PayerDetails notification approved for merchantOrderId {MerchantOrderId}", merchantOrderId);
+                        logger.LogInformation("PayerDetails notification approved for MessageId {MessageId}", merchantOrderId);
                         if (createUserResponse.SuccessLoginUrl != null)
                         {
                             await sessionRepository.UpdateSuccessLoginUrlAsync(merchantOrderId, createUserResponse.SuccessLoginUrl);
@@ -147,47 +147,43 @@ app.MapPost("/trumo/notifications", async (HttpContext context, ILogger<Program>
                     }
                     else
                     {
-                        logger.LogWarning("PayerDetails notification cancelled for merchantOrderId {MerchantOrderId}, user creation or key obtain failed", merchantOrderId);
-                        await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId, trumoOrderId, "cancel");
+                        logger.LogWarning("PayerDetails notification cancelled for MessageId {MessageId}, user creation or key obtain failed", merchantOrderId);
+                        await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId!, trumoOrderId, "cancel");
                     }
                 }
                 else
                 {
-                    logger.LogWarning("Session data not found for merchantOrderId {MerchantOrderId}, PayerDetails notification cancelled", merchantOrderId);
-                    await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId, trumoOrderId, "cancel");
+                    logger.LogWarning("Session data not found for MessageId {MessageId}, PayerDetails notification cancelled", merchantOrderId);
+                    await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId!, trumoOrderId, "cancel");
                 }
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Error in PayerDetails notification. Response: cancel");
-                var data = notification.data;
-                var payerDetails = data.payerDetails;
-                var orderDetails = data.orderDetails;
-                await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, (string)payerDetails.merchantPayerID, (string)payerDetails.trumoPayerID, (string)orderDetails.merchantOrderID, (string)orderDetails.trumoOrderID, "cancel");
+                var payerDetails = data!.payerDetails;
+                var errorTrumoOrderId = (string?)orderDetails?.trumoOrderID;
+                logger.LogError(ex, "Error in PayerDetails notification for MessageId {MessageId}. Response: cancel", merchantOrderId);
+                await trumoApi.RespondToPayerDetailsNotification(context.Response, uuid, (string)payerDetails.merchantPayerID, (string)payerDetails.trumoPayerID, merchantOrderId ?? "", errorTrumoOrderId ?? "", "cancel");
             }
         }
         else if (notificationType == "orderStatus" && notification.data.orderDetails.type == "deposit" && notification.data.orderDetails.status == "initiated")
         {
-            var data = notification.data;
-            var payerDetails = data.payerDetails;
-            var orderDetails = data.orderDetails;
+            var payerDetails = data!.payerDetails;
 
             string merchantPayerId = payerDetails.merchantPayerID;
             string trumoPayerId = payerDetails.trumoPayerID;
-            string merchantOrderId = orderDetails.merchantOrderID;
-            string trumoOrderId = orderDetails.trumoOrderID;
-            await trumoApi.RespondToOrderStatusNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId, trumoOrderId);
-            logger.LogInformation("OrderStatus notification processed for deposit initiation, merchantOrderId {MerchantOrderId}", merchantOrderId);
+            string trumoOrderId = orderDetails!.trumoOrderID;
+            await trumoApi.RespondToOrderStatusNotification(context.Response, uuid, merchantPayerId, trumoPayerId, merchantOrderId!, trumoOrderId);
+            logger.LogInformation("OrderStatus notification processed for MessageId {MessageId}", merchantOrderId);
         }
         else
         {
+            logger.LogInformation("Trumo notification redirected to papaya.ninja for MessageId {MessageId}", merchantOrderId);
             var client = new HttpClient();
             var stringPayload = JsonConvert.SerializeObject(notification);
             var httpContent = new StringContent(stringPayload, Encoding.UTF8, "application/json");
             var redirectResp = await client.PostAsync("https://a.papaya.ninja/gate/trumo/", httpContent);
             var content = await redirectResp.Content.ReadAsStringAsync();
-            logger.LogInformation("Trumo notification redirected to papaya.ninja");
-            logger.LogDebug("Redirected response content: {Content}", content);
+            logger.LogDebug("Redirected response content for MessageId {MessageId}: {Content}", merchantOrderId, content);
             await context.Response.WriteAsync(content);
         }
     }
@@ -291,16 +287,15 @@ app.MapPost("/trustly/deposit", async ([FromBody] DepositParams deposit, ILogger
 {
     try
     {
-        logger.LogInformation("Trustly deposit request received for currency {Currency} with amount {Amount}", deposit.Currency, deposit.Amount);
-        logger.LogDebug("Trustly deposit details: {@Deposit}", deposit);
-
         var origin = context.Request.Headers.Origin.ToString();
         // If Origin header is not available, try Referer
         if (string.IsNullOrEmpty(origin))
         {
             origin = context.Request.Headers.Referer.ToString();
         }
-        var depositResponse =  await trustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
+        var depositResponse = await trustlyApi.Deposite(deposit.Email, deposit.Amount, deposit.Password, deposit.Currency, deposit.Country, deposit.Locale, deposit.FailUrl);
+        logger.LogInformation("Trustly deposit request processed for MessageId {MessageId}, Currency {Currency}, Amount {Amount}", depositResponse.MessageId, deposit.Currency, deposit.Amount);
+        logger.LogDebug("Trustly deposit details for MessageId {MessageId}: {@Deposit}", depositResponse.MessageId, deposit);
         await sessionRepository.CreateSessionAsync("Trustly", depositResponse.MessageId, deposit.Email, deposit.Currency, deposit.PartnerId, origin);
         return depositResponse;
     } catch (Exception ex)
@@ -316,15 +311,17 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
     {
         var notification = JsonConvert.DeserializeObject<dynamic>(body.ToString()!)!;
         string method = notification.method;
-        logger.LogInformation("Trustly notification received with method {Method}", method);
-        logger.LogDebug("Trustly notification body: {@Body}", body);
+        var data = notification["params"].data;
+        var messageid = (string?)data.messageid;
+
+        logger.LogInformation("Trustly {Method} notification received for MessageId {MessageId}", method, messageid);
+        logger.LogDebug("Trustly notification body for MessageId {MessageId}: {@Body}", messageid, body);
 
         if (method == "kyc")
         {
             var uuid = (string)notification["params"].uuid;
             try
             {
-                var data = notification["params"].data;
                 var abortmessage = (string?)data.abortmessage;
                 if (abortmessage == null)
                 {
@@ -336,7 +333,6 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                     var zipcode = (string?)attributes.zipcode;
                     var city = (string?)attributes.city;
                     var country = (string?)attributes.country;
-                    var messageid = (string)data.messageid;
                     var orderid = (string)data.orderid;
 
                     // Try to get session data from MongoDB first
@@ -390,7 +386,6 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                 }
                 else
                 {
-                    var messageid = (string?)data.messageid;
                     logger.LogWarning("KYC notification aborted for messageId {MessageId}, hasAbortMessage {HasAbortMessage}",
                         messageid, !string.IsNullOrEmpty(abortmessage));
                     logger.LogDebug("KYC notification abort message: {AbortMessage}", abortmessage);
@@ -398,7 +393,8 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
                 }
             } catch (Exception ex)
             {
-                logger.LogError(ex, "Error in KYC notification. Response: FINISH");
+                var errorMessageId = (string?)notification["params"]?.data?.messageid;
+                logger.LogError(ex, "Error in KYC notification for MessageId {MessageId}. Response: FINISH", errorMessageId);
                 await trustlyApi.Response(context.Response, uuid, "kyc", "FINISH");
             }
         }
@@ -409,7 +405,7 @@ app.MapPost("/trustly/notifications", async ([FromBody] object body, HttpContext
             var httpContent = new StringContent(stringPayload, Encoding.UTF8, "application/json");
             var redirectResp = await client.PostAsync("https://a.papaya.ninja/trustly/gate/mobinc/", httpContent);
             var content = await redirectResp.Content.ReadAsStringAsync();
-            logger.LogInformation("Trustly notification redirected to papaya.ninja");
+            logger.LogInformation("Trustly notification redirected to papaya.ninja for MessageId {MessageId}", messageid);
             logger.LogDebug("Redirected response content: {Content}", content);
             await context.Response.WriteAsync(content);
         }

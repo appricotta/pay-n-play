@@ -35,7 +35,6 @@ namespace PnPMiddleware.Services
 
             var responseObj = JsonConvert.DeserializeObject<dynamic>(responseContent)!;
             bool success = responseObj.success == true;
-            _logger.LogInformation("Carouseller KeyObtain completed for MessageId {MessageId}, Success {Success}", messageId, success);
 
             return success;
         }
